@@ -79,8 +79,11 @@ test('技能 ZIP 解压后无需依赖即可 --yes 安装并 --status 确认两�
   for (const dir of [env.CLAUDE_CONFIG_DIR, path.join(env.APPDATA, 'devin'), path.join(env.XDG_CONFIG_HOME, 'devin')]) mkdirSync(dir, { recursive: true });
   const run = args => { const r = spawnSync(process.execPath, ['installer/install.mjs', ...args], { cwd: unpacked, env, encoding: 'utf8', shell: false, windowsHide: true, timeout: 20000 }); assert.equal(r.status, 0, r.stderr); return r.stdout; };
   run(['--yes']); const status = run(['--status']);
-  assert.equal((status.match(/codex-dispatch\s+0\.1\.0/g) || []).length, 2);
-  assert.equal((status.match(/dual-role-workflow\s+0\.1\.0/g) || []).length, 2);
+  // 版本号取 package.json，升版本时不用改测试
+  const version = JSON.parse(readFileSync('package.json', 'utf8')).version;
+  const installed = name => status.split('\n').filter(line => line.trim().split(/\s+/).join(' ') === `${name} ${version}`).length;
+  assert.equal(installed('codex-dispatch'), 2);
+  assert.equal(installed('dual-role-workflow'), 2);
   assert.equal(existsSync(path.join(unpacked, 'node_modules')), false);
 });
 test('ZIP 支持中文名称、空文件并可重复生成', t => {
