@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DispatchDock 品牌图标候选</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: var(--fs-body)/var(--lh) var(--font-ui); -webkit-font-smoothing: antialiased; }
+  header { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 12px 32px; background: var(--material); backdrop-filter: var(--material-blur); border-bottom: 1px solid var(--divider); }
+  header b { font-weight: 500; margin-right: 8px; }
+  .grp { display: flex; align-items: center; gap: 8px; color: var(--text-3); font-size: 12px; }
+  .segm { display: inline-flex; height: 28px; padding: 2px; gap: 2px; background: var(--surface-2); border-radius: 8px; }
+  .segm button { border: 0; border-radius: 6px; padding: 0 12px; background: transparent; color: var(--text-2); font: 12px var(--font-ui); cursor: default; display: inline-flex; align-items: center; gap: 6px; }
+  .segm button.on { background: var(--selected); color: var(--text); }
+  [data-theme="light"] .segm button.on { background: var(--surface); box-shadow: 0 1px 2px rgba(0,0,0,.1), 0 0 0 1px var(--border); }
+  .sw { width: 10px; height: 10px; border-radius: 50%; }
+  main { padding: 24px 32px 48px; display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; max-width: 1240px; margin: 0 auto; }
+  .c { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+  .c h2 { margin: 0; font-size: 14px; font-weight: 500; display: flex; align-items: baseline; gap: 8px; }
+  .c h2 span { color: var(--text-3); font-size: 12px; font-weight: 400; }
+  .c p { margin: 0; color: var(--text-2); font-size: 12px; line-height: 18px; }
+  .tiles { display: flex; align-items: flex-end; gap: 14px; }
+  .tile { border-radius: 22%; display: grid; place-items: center; flex: 0 0 auto; }
+  .tile.dark { background: #1c1c1b; box-shadow: inset 0 0 0 1px rgba(255,255,255,.06); }
+  .tile.light { background: #ffffff; box-shadow: inset 0 0 0 1px #e6e5e1; }
+  .sizes { display: flex; align-items: center; gap: 14px; padding: 10px 12px; border-radius: 8px; background: var(--nav-bg); }
+  .sizes span { color: var(--text-3); font-size: 11px; margin-left: auto; }
+  .ctx { display: flex; flex-direction: column; gap: 8px; }
+  .bar { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 18px; border-radius: 8px; background: var(--nav-bg); font-weight: 500; }
+  .bar svg { width: 18px; height: 18px; }
+  .task { display: flex; align-items: center; gap: 6px; height: 40px; padding: 0 10px; border-radius: 8px; background: #202020; }
+  [data-theme="light"] .task { background: #eeeeec; }
+  .task i { width: 28px; height: 28px; border-radius: 6px; display: grid; place-items: center; }
+  .task i.on { background: rgba(127,127,127,.18); }
+  .task i b { width: 18px; height: 18px; border-radius: 4px; background: rgba(127,127,127,.35); }
+  .pick { margin-top: auto; display: flex; gap: 8px; align-items: center; color: var(--text-3); font-size: 12px; }
+  .notes { max-width: 1240px; margin: 0 auto; padding: 0 32px 48px; color: var(--text-2); font-size: 12px; line-height: 18px; }
+  .notes h3 { margin: 0 0 6px; font-size: 13px; font-weight: 500; color: var(--text); }
+  .notes ul { margin: 0; padding-left: 18px; }
+</style>
+</head>
+<body>
+<header>
+  <b>品牌图标候选</b>
+  <div class="grp">主题<div class="segm" id="theme"></div></div>
+  <div class="grp">品牌色<div class="segm" id="color"></div></div>
+</header>
+<main id="grid"></main>
+<section class="notes">
+  <h3>说明</h3>
+  <ul>
+    <li>全部自绘，不用图标库里的图形（Remix Icon 的许可不允许当 logo）。网格 24×24，线宽 2.2，圆角端点，和界面里的线性图标同一种粗细感，侧栏 18px 和任务栏 16px 下都要认得出。</li>
+    <li>应用图标是"底板 + 图形"：深色版暗底，浅色版白底加细边。安装包、exe、开始菜单不能跟主题变，固定用深色版。</li>
+    <li>品牌色是待定项：陶土色是 Claude 的品牌色，本软件是开源的第三方工具，用它容易被看成官方出品；另外给了三种自己的颜色。</li>
+  </ul>
+</section>
+<script>
+'use strict';
+// 图形：每个函数返回 24×24 网格里的 SVG 内容。c = 品牌色，b = 底色（用于描边断开重叠处）
+const MARKS = [
+  { id: 'A', name: '入坞', idea: '一个任务块落进泊位：派出去的活都停在这里，看得见、管得住。最贴近"Dock"。',
+    svg: (c, b) => `<path d="M4 9.5V17a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3V9.5" fill="none" stroke="${c}" stroke-width="2.2" stroke-linecap="round"/><rect x="8.25" y="6.5" width="7.5" height="7.5" rx="2" fill="${c}"/>` },
+  { id: 'B', name: '交接', idea: '两个前后错开的方块：一个 agent 把活交给另一个。前实后空，表示"派的一方"和"干的一方"。',
+    svg: (c, b) => `<rect x="3.5" y="3.5" width="11" height="11" rx="3" fill="none" stroke="${c}" stroke-width="2.2"/><rect x="9.5" y="9.5" width="11" height="11" rx="3" fill="${c}" stroke="${b}" stroke-width="2" paint-order="stroke"/>` },
+  { id: 'C', name: '派出', idea: '左边一根竖条是派活方，右边一支箭头把活推出去。动作感最强，但"监控"的意思弱。',
+    svg: (c) => `<rect x="3" y="4" width="4.5" height="16" rx="2.25" fill="${c}"/><path d="M11 12h8.5M15.5 7.5 20 12l-4.5 4.5" fill="none" stroke="${c}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>` },
+  { id: 'D', name: '回环', idea: '派出去、再回来汇报：一圈带箭头的回路，中间一点是正在进行的任务。',
+    svg: (c) => `<path d="M19 12a7 7 0 1 1-2.05-4.95" fill="none" stroke="${c}" stroke-width="2.2" stroke-linecap="round"/><path d="M17.6 3.6v3.9h-3.9" fill="none" stroke="${c}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="2.6" fill="${c}"/>` },
+  { id: 'E', name: '双节点', idea: '大点是派活方，小圈是干活方，一条弧线连起来。最直接表达"agent 派给 agent"。',
+    svg: (c) => `<circle cx="7" cy="16.5" r="3.6" fill="${c}"/><circle cx="17.5" cy="6.5" r="2.7" fill="none" stroke="${c}" stroke-width="2.2"/><path d="M9.6 13.6C11.2 10 12.8 8.3 14.8 7.4" fill="none" stroke="${c}" stroke-width="2.2" stroke-linecap="round"/>` },
+  { id: 'F', name: 'D 字港', idea: '字母 D 围成一个港湾，里面一支箭头向外。首字母可识别，但字母图标在 16px 下容易像普通字母。',
+    svg: (c) => `<path d="M5 4h6a8 8 0 0 1 0 16H5z" fill="none" stroke="${c}" stroke-width="2.2" stroke-linejoin="round"/><path d="M8.5 12h6M12.5 9.5 15 12l-2.5 2.5" fill="none" stroke="${c}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>` },
+];
+const COLORS = { clay: ['陶土', '#d97757'], teal: ['青', '#3f9e90'], indigo: ['靛', '#6f7fe0'], amber: ['琥珀', '#d49a3a'], mono: ['单色', null] };
+const S = { theme: 'dark', color: 'teal' };
+const svg = (m, size, c, b) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">${m.svg(c, b)}</svg>`;
+function seg(id, items, value, key) {
+  document.getElementById(id).innerHTML = Object.entries(items).map(([k, v]) => `<button class="${k === value ? 'on' : ''}" data-${key}="${k}">${Array.isArray(v) ? `${v[1] ? `<span class="sw" style="background:${v[1]}"></span>` : ''}${v[0]}` : v}</button>`).join('');
+}
+function render() {
+  document.documentElement.dataset.theme = S.theme;
+  seg('theme', { dark: '深色', light: '浅色' }, S.theme, 'theme');
+  seg('color', COLORS, S.color, 'color');
+  const cs = getComputedStyle(document.documentElement);
+  const brand = COLORS[S.color][1] ?? cs.getPropertyValue('--text').trim();
+  const navBg = cs.getPropertyValue('--nav-bg').trim();
+  document.getElementById('grid').innerHTML = MARKS.map(m => {
+    const darkTile = svg(m, 76, COLORS[S.color][1] ?? '#f2f1ed', '#1c1c1b'), lightTile = svg(m, 76, COLORS[S.color][1] ?? '#141413', '#ffffff');
+    return `<div class="c">
+      <h2>${m.id} · ${m.name}<span>${m.id === 'A' ? '推荐' : ''}</span></h2>
+      <p>${m.idea}</p>
+      <div class="tiles"><div class="tile dark" style="width:128px;height:128px">${darkTile}</div><div class="tile light" style="width:128px;height:128px">${lightTile}</div><div class="tile dark" style="width:48px;height:48px">${svg(m, 28, COLORS[S.color][1] ?? '#f2f1ed', '#1c1c1b')}</div></div>
+      <div class="sizes">${[32, 24, 20, 16].map(n => svg(m, n, brand, navBg)).join('')}<span>32 · 24 · 20 · 16</span></div>
+      <div class="ctx"><div class="bar">${svg(m, 18, brand, navBg)}DispatchDock</div>
+      <div class="task"><i><b></b></i><i><b></b></i><i class="on"><span class="tile dark" style="width:22px;height:22px;display:grid">${svg(m, 14, COLORS[S.color][1] ?? '#f2f1ed', '#1c1c1b')}</span></i><i><b></b></i></div></div>
+    </div>`;
+  }).join('');
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.theme) S.theme = b.dataset.theme;
+  if (b.dataset.color) S.color = b.dataset.color;
+  render();
+});
+render();
+</script>
+</body>
+</html>

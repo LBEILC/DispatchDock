@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>图标 D 打磨</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0b0b0b; color: #f2f1ed; font: 13px/20px var(--font-ui); -webkit-font-smoothing: antialiased; }
+  header { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 12px 32px; background: rgba(11,11,11,.85); backdrop-filter: blur(20px); border-bottom: 1px solid #232322; }
+  header b { font-weight: 500; }
+  .grp { display: flex; align-items: center; gap: 8px; color: #75746f; font-size: 12px; }
+  .segm { display: inline-flex; height: 28px; padding: 2px; gap: 2px; background: #2a2a29; border-radius: 8px; }
+  .segm button { border: 0; border-radius: 6px; padding: 0 12px; background: transparent; color: #a8a7a2; font: 12px var(--font-ui); cursor: default; display: inline-flex; align-items: center; gap: 6px; }
+  .segm button.on { background: #3a3a38; color: #f2f1ed; }
+  .sw { width: 10px; height: 10px; border-radius: 50%; }
+  main { padding: 24px 32px 16px; display: flex; flex-direction: column; gap: 16px; max-width: 1280px; margin: 0 auto; }
+  .row { display: grid; grid-template-columns: 200px 1fr 1fr; gap: 12px; align-items: stretch; }
+  .name { padding: 12px 4px; }
+  .name b { display: block; font-weight: 500; font-size: 14px; }
+  .name p { margin: 6px 0 0; color: #a8a7a2; font-size: 12px; line-height: 18px; }
+  .name .pick { color: #8fa874; font-size: 12px; }
+  .name .m { color: #75746f; font-family: var(--font-mono); font-size: 11px; line-height: 16px; }
+  .side { border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+  .side.d { background: #151515; border: 1px solid #2e2e2d; }
+  .side.l { background: #fcfcfb; border: 1px solid #e6e5e1; color: #141413; }
+  .tiles { display: flex; align-items: flex-end; gap: 12px; }
+  .tile { border-radius: 22.5%; display: grid; place-items: center; flex: 0 0 auto; }
+  .sizes { display: flex; align-items: center; gap: 16px; }
+  .sizes small { margin-left: auto; font-size: 11px; color: #75746f; }
+  .bar { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px; border-radius: 8px; font-weight: 500; }
+  .side.d .bar { background: #111111; } .side.l .bar { background: #f8f8f6; }
+  .notes { max-width: 1280px; margin: 0 auto; padding: 8px 32px 48px; color: #a8a7a2; font-size: 12px; line-height: 18px; }
+  .notes h3 { margin: 0 0 6px; color: #f2f1ed; font-size: 13px; font-weight: 500; }
+  .notes ul { margin: 0; padding-left: 18px; }
+  .notes code { font-family: var(--font-mono); }
+</style>
+</head>
+<body>
+<header>
+  <b>图标 D2 定稿打磨 · 品牌色克莱因蓝</b>
+  <div class="grp">深色主题用<div class="segm" id="dk"></div></div>
+  <div class="grp">应用图标底板<div class="segm" id="tile"></div></div>
+  <div class="grp">辅助线<div class="segm" id="guide"></div></div>
+</header>
+<main id="rows"></main>
+<section class="notes">
+  <h3>说明</h3>
+  <ul>
+    <li><b>品牌色</b>：浅色主题直接用克莱因蓝 <code>#002FA7</code>（白底对比 10.7:1）；它在深底上只有 1.7:1，所以深色主题用同色相提亮的派生色：<code>#6684FF</code>（5.5:1，默认）或更饱和的 <code>#5577FF</code>（4.8:1）。</li>
+    <li><b>应用图标</b>：克莱因蓝实色底板 + 白色图形（10.7:1），任务栏深浅都醒目，深浅不用两套。另一种是跟主题的暗底 / 白底底板。</li>
+    <li>每行右侧的 16、20px 用加粗的小尺寸版（线宽 2.6），这是小图标常见的手工调整。</li>
+    <li>辅助线：红色十字是底板中心，黄色虚线是图形的包围盒，绿点是墨迹重心（按像素量出来的）。用户 2026-10-08 选了 D2，D3、D4 已撤下。</li>
+  </ul>
+</section>
+<script>
+'use strict';
+const IKB = '#002FA7', WHITE = '#ffffff';
+const DARK = { a: ['#6684FF', '提亮 #6684FF'], b: ['#5577FF', '饱和 #5577FF'] };
+const S = { dk: 'a', tile: 'ikb', guide: true };
+const r2 = n => Math.round(n * 100) / 100;
+const P = (a, r) => [12 + r * Math.cos(a * Math.PI / 180), 12 + r * Math.sin(a * Math.PI / 180)];
+// 顺时针圆弧（屏幕坐标，角度 0 在三点钟方向，顺时针为正）
+const arc = (a0, a1, r) => { const [x0, y0] = P(a0, r), [x1, y1] = P(a1, r); return `M${r2(x0)} ${r2(y0)}A${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${r2(x1)} ${r2(y1)}`; };
+// 圆弧终点的实心箭头：底边中点在弧上，尖端沿切线方向
+const head = (a, r, len, half) => {
+  const [bx, by] = P(a, r), t = [-Math.sin(a * Math.PI / 180), Math.cos(a * Math.PI / 180)], n = [Math.cos(a * Math.PI / 180), Math.sin(a * Math.PI / 180)];
+  const pts = [[bx + t[0] * len, by + t[1] * len], [bx + n[0] * half, by + n[1] * half], [bx - n[0] * half, by - n[1] * half]];
+  return `M${pts.map(p => p.map(r2).join(' ')).join('L')}Z`;
+};
+const stroke = (d, c, w) => `<path d="${d}" fill="none" stroke="${c}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round"/>`;
+const fill = (d, c) => `<path d="${d}" fill="${c}" stroke="${c}" stroke-width="0.6" stroke-linejoin="round"/>`;
+const dot = (x, y, r, c) => `<circle cx="${r2(x)}" cy="${r2(y)}" r="${r}" fill="${c}"/>`;
+
+const VARIANTS = [
+  { id: 'D2', name: '用户选定的原样', note: '箭头在十二点方向朝外凸出，图形上沿离边只剩 1.7、下沿留 3.7，所以顶部挤；包围盒中心比圆心高约 1，圆点看起来偏下。',
+    draw: (c, w = 2.2) => stroke(arc(-30, 262, 7.2), c, w) + fill(head(262, 7.2, 4.4, 3.1), c) + dot(12, 12, 2.8, c) },
+  { id: 'D2a', name: '箭头移到右上斜角', note: '箭头放在 45° 斜角（圆角方块最空的位置），尖端顺时针指向右侧的缺口。箭头凸出部分落在圆环的外框以内，上下左右留白相等。',
+    draw: (c, w = 2.2) => stroke(arc(15, 315, 7.2), c, w) + fill(head(315, 7.2, 4.4, 3.1), c) + dot(12, 12, 2.8, c) },
+  { id: 'D2b', name: '斜角 + 收小箭头 + 光学居中（定稿）', pick: true, note: '在 D2a 上把箭头收小一点（4.0 × 2.8），缺口加宽到约 30°，中心点 2.9；整体再按包围盒平移，让外框正好居中。',
+    center: true, draw: (c, w = 2.2) => stroke(arc(18, 315, 7.3), c, w) + fill(head(315, 7.3, 4.0, 2.8), c) + dot(12, 12, 2.9, c) },
+  { id: 'D2c', name: '斜角 + 箭头内收', note: '箭头底边中点往圆心收 0.6，外凸更少、更像一体；代价是箭头离中心点近了，小尺寸稍挤。',
+    center: true, draw: (c, w = 2.2) => stroke(arc(18, 315, 7.3), c, w) + fill(head(315, 6.7, 4.0, 2.8), c) + dot(12, 12, 2.9, c) },
+];
+const OFF = {};
+const svg = (v, size, c, w) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true"><g transform="translate(${OFF[v.id]?.dx ?? 0} ${OFF[v.id]?.dy ?? 0})">${v.draw(c, w)}</g>${S.guide && size >= 72 ? guide(v) : ''}</svg>`;
+// 把图形栅格化，量出包围盒和墨迹重心（单位：24 网格）
+async function measure(inner) {
+  const n = 480, src = `<svg xmlns="http://www.w3.org/2000/svg" width="${n}" height="${n}" viewBox="0 0 24 24">${inner}</svg>`;
+  const img = new Image(); img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(src); await img.decode();
+  const cv = document.createElement('canvas'); cv.width = cv.height = n; const g = cv.getContext('2d'); g.drawImage(img, 0, 0);
+  const d = g.getImageData(0, 0, n, n).data; let sx = 0, sy = 0, sum = 0, x0 = n, y0 = n, x1 = 0, y1 = 0;
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) { const a = d[(y * n + x) * 4 + 3] / 255; if (a > 0.05) { sx += x * a; sy += y * a; sum += a; x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); } }
+  const k = 24 / n; return { cx: sx / sum * k, cy: sy / sum * k, box: [x0 * k, y0 * k, (x1 + 1) * k, (y1 + 1) * k] };
+}
+const M = {};
+function guide(v) {
+  const m = M[v.id]; if (!m) return '';
+  const [x0, y0, x1, y1] = m.box;
+  return `<g fill="none" stroke-width="0.12"><path d="M12 0V24M0 12H24" stroke="#e3695c"/><rect x="${r2(x0)}" y="${r2(y0)}" width="${r2(x1 - x0)}" height="${r2(y1 - y0)}" stroke="#d9a744" stroke-dasharray="0.4 0.3"/><circle cx="${r2(m.cx)}" cy="${r2(m.cy)}" r="0.45" fill="#8fa874" stroke="none"/></g>`;
+}
+async function prepare() {
+  for (const v of VARIANTS) {
+    const raw = await measure(v.draw('#000'));
+    const [x0, y0, x1, y1] = raw.box;
+    OFF[v.id] = v.center ? { dx: r2(12 - (x0 + x1) / 2), dy: r2(12 - (y0 + y1) / 2) } : { dx: 0, dy: 0 };
+    const o = OFF[v.id];
+    M[v.id] = { cx: raw.cx + o.dx, cy: raw.cy + o.dy, box: [x0 + o.dx, y0 + o.dy, x1 + o.dx, y1 + o.dy] };
+  }
+}
+function seg(id, items, value, key) { document.getElementById(id).innerHTML = Object.entries(items).map(([k, v]) => `<button class="${k === value ? 'on' : ''}" data-${key}="${k}">${Array.isArray(v) ? `<span class="sw" style="background:${v[0]}"></span>${v[1]}` : v}</button>`).join(''); }
+function side(v, theme) {
+  const dark = theme === 'd', mark = dark ? DARK[S.dk][0] : IKB, fg = dark ? '#f2f1ed' : '#141413';
+  const tile = (size, inner) => S.tile === 'ikb'
+    ? `<div class="tile" style="width:${size}px;height:${size}px;background:${IKB}">${svg(v, inner, WHITE)}</div>`
+    : `<div class="tile" style="width:${size}px;height:${size}px;background:${dark ? '#1c1c1b' : '#ffffff'};box-shadow:inset 0 0 0 1px ${dark ? 'rgba(255,255,255,.07)' : '#e6e5e1'}">${svg(v, inner, mark)}</div>`;
+  return `<div class="side ${theme}">
+    <div class="tiles">${tile(112, 72)}${tile(48, 30)}${tile(24, 15)}</div>
+    <div class="sizes">${svg(v, 32, mark)}${svg(v, 24, mark)}${svg(v, 20, mark, 2.6)}${svg(v, 16, mark, 2.6)}<small>32 · 24 · 20 · 16</small></div>
+    <div class="bar" style="color:${fg}">${svg(v, 18, mark)}DispatchDock</div>
+  </div>`;
+}
+function render() {
+  seg('dk', DARK, S.dk, 'dk');
+  seg('tile', { ikb: '克莱因蓝实底', theme: '跟主题' }, S.tile, 'tile');
+  seg('guide', { on: '显示', off: '隐藏' }, S.guide ? 'on' : 'off', 'guide');
+  document.getElementById('rows').innerHTML = VARIANTS.map(v => `<div class="row"><div class="name"><b>${v.id} · ${v.name}</b>${v.pick ? '<span class="pick">定稿，源文件在 icons/</span>' : ''}<p>${v.note}</p>${M[v.id] ? `<p class="m">包围盒中心 (${r2((M[v.id].box[0] + M[v.id].box[2]) / 2)}, ${r2((M[v.id].box[1] + M[v.id].box[3]) / 2)})<br>上 ${r2(M[v.id].box[1])} · 下 ${r2(24 - M[v.id].box[3])} · 左 ${r2(M[v.id].box[0])} · 右 ${r2(24 - M[v.id].box[2])}<br>墨迹重心 (${r2(M[v.id].cx)}, ${r2(M[v.id].cy)})</p>` : ''}</div>${side(v, 'd')}${side(v, 'l')}</div>`).join('');
+}
+document.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; if (b.dataset.dk) S.dk = b.dataset.dk; if (b.dataset.tile) S.tile = b.dataset.tile; if (b.dataset.guide) S.guide = b.dataset.guide === 'on'; render(); });
+prepare().then(render);
+</script>
+</body>
+</html>

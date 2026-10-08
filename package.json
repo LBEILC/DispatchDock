@@ -1,0 +1,38 @@
+{
+  "name": "dispatchdock",
+  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Let one agent dispatch work to another, and watch, stop and review it in one place.",
+  "repository": "https://github.com/LBEILC/DispatchDock",
+  "type": "module",
+  "scripts": {
+    "verify": "tsc --noEmit && node tools/verify-monitor.mjs && node --test",
+    "build": "node tools/build.mjs",
+    "start": "npm run build && electron .",
+    "shots": "npm run build && node tools/shots.mjs",
+    "demo": "npm run build && node tools/demo/run.mjs",
+    "fonts": "node tools/fonts.mjs",
+    "dist": "node tools/dist.mjs",
+    "pack:skills": "node tools/pack-skills.mjs",
+    "export:public": "node tools/export-public.mjs",
+    "verify:packaged": "node tools/verify-packaged.mjs"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "electron": "43.7.5",
+    "electron-builder": "26.15.3",
+    "esbuild": "0.27.3",
+    "typescript": "5.9.3"
+  },
+  "dependencies": {
+    "remixicon": "4.9.1"
+  },
+  "allowScripts": {
+    "esbuild@0.27.3": true
+  },
+  "main": "app/dist/main.cjs"
+}

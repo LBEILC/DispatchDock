@@ -1,0 +1,10 @@
+{"type":"item.completed","item":{"id":"sample-error","type":"error","message":"unrecognized configuration key: example"}}
+{"type":"item.completed","item":{"id":"sample-agent_message","type":"agent_message","text":"已检查示例仓库。\n接下来执行验证。"}}
+{"type":"item.started","item":{"id":"sample-web_search","type":"web_search","query":"示例工具文档"}}
+{"type":"item.started","item":{"id":"sample-mcp_tool_call","type":"mcp_tool_call","server":"example","tool":"inspect"}}
+{"type":"item.completed","item":{"id":"sample-file_change","type":"file_change","changes":[{"kind":"add","path":"src/example.ts"}]}}
+{"type":"item.started","item":{"id":"cmd-ok","type":"command_execution","command":"powershell.exe -Command \"node check.mjs\"","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"cmd-ok","type":"command_execution","command":"powershell.exe -Command \"node check.mjs\"","aggregated_output":"验证通过\n","exit_code":0,"status":"completed"}}
+{"type":"item.started","item":{"id":"cmd-fail","type":"command_execution","command":"powershell.exe -Command \"node check.mjs\"","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"cmd-fail","type":"command_execution","command":"powershell.exe -Command \"node check.mjs\"","aggregated_output":"示例失败\n","exit_code":1,"status":"failed"}}
+{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20}}

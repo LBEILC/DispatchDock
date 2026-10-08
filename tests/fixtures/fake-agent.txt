@@ -1,0 +1,16 @@
+// 只供隔离测试使用，绝不运行真实 Codex。
+import { readFileSync, writeFileSync } from 'node:fs';
+if (process.argv.includes('--version')) {
+  console.log('codex-cli test-fixture');
+} else {
+  let prompt = '';
+  for await (const chunk of process.stdin) prompt += chunk;
+  const args = process.argv.slice(2);
+  writeFileSync(process.env.FAKE_ECHO, JSON.stringify({ args, prompt }));
+  if (process.env.FAKE_STDERR) process.stderr.write('示例 stderr\n');
+  const samples = JSON.parse(process.env.FAKE_FIXTURES);
+  for (const file of samples) process.stdout.write(readFileSync(file, 'utf8'));
+  if (process.env.FAKE_LARGE_FINAL) console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: '末尾'.repeat(100000) } }));
+  if (!process.env.FAKE_SKIP_REPORT) writeFileSync(args[args.indexOf('-o') + 1], 'OK\n');
+  process.exitCode = Number(process.env.FAKE_EXIT ?? 0);
+}

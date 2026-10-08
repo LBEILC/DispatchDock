@@ -1,0 +1,134 @@
+/* DispatchDock 设计令牌（设计负责人维护）
+ * 主题由应用在 <html data-theme="dark|light"> 上设置，默认跟随系统。
+ * 视觉方向：中性灰、少框、少粗体、少颜色；品牌色只用于品牌标记和键盘焦点环。
+ * 品牌色（用户 2026-10-08 定）：克莱因蓝。浅色主题直接用 #002FA7；它在深底上对比度只有 1.7:1，深色主题用同色相提亮的 #6684FF（5.5:1）。
+ * 应用图标用克莱因蓝实色底板 + 白色图形，不随主题变。
+ * 状态色：正常橄榄绿、失败砖红、中断琥珀、提示天蓝。
+ */
+
+:root {
+  /* 字体：中文和非等宽文字用 MiSans（产品里随包注册；视觉稿落到本机已装的版本或系统字体） */
+  --font-ui: "DispatchDock MiSans", "MiSans VF", "MiSans", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  --font-mono: "Cascadia Mono", "Cascadia Code", Consolas, "MiSans VF", "MiSans", "Microsoft YaHei UI", monospace;
+
+  /* 字号 / 字重 / 行高：全部 500 以下，不用粗体；行高用整数像素 */
+  --fs-page: 22px;
+  --fs-title: 14px;
+  --fs-body: 13px;
+  --fs-small: 12px;
+  --fs-mono: 12px;
+  --fw-strong: 500;
+  --lh: 20px;
+  --lh-small: 18px;
+
+  /* 间距 */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+
+  /* 圆角 */
+  --r-card: 12px;
+  --r-ctl: 8px;
+  --r-inner: 6px;
+  --r-pill: 999px;
+
+  /* 尺寸 */
+  --ctl: 32px;         /* 默认按钮、输入框、下拉框、分段控件 */
+  --ctl-sm: 28px;      /* 小按钮、图标按钮、卡片头和工具条里的控件 */
+  --row: 52px;         /* 任务列表行 */
+  --mark: 16px;        /* 状态标记 */
+  --titlebar-h: 44px;
+  --page-h: 64px;      /* 页面标题行 */
+  --nav-w: 200px;
+  --list-w: 320px;     /* 任务页列表栏 */
+
+  /* 窗口：默认 1160×720，最小 960×600 */
+  --win-w: 1160px;
+  --win-h: 720px;
+  --win-min-w: 960px;
+  --win-min-h: 600px;
+
+  /* 动效：只用来说明"什么变了"；后台刷新不产生动效；系统减少动态效果时全关 */
+  --dur-1: 120ms;  /* 悬停、按下、收起 */
+  --dur-2: 160ms;  /* 进入：页面、菜单、详情 */
+  --dur-3: 220ms;  /* 状态变化、指示条滑动 */
+  --dur-flash: 1600ms; /* 新出现的一条底色淡出 */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-move: cubic-bezier(0.3, 0, 0, 1);
+
+  --brand-ikb: #002FA7;   /* 应用图标底板 */
+  --material-blur: blur(24px) saturate(180%);
+}
+
+[data-theme="dark"] {
+  --bg: #151515;
+  --nav-bg: #111111;
+  --surface: #1c1c1b;
+  --surface-2: #2a2a29;
+  --selected: #323231;
+  --border: #2e2e2d;
+  --divider: #232322;
+  --text: #f2f1ed;
+  --text-2: #a8a7a2;
+  --text-3: #75746f;
+
+  --accent: #3a3a38;
+  --accent-hover: #454543;
+  --accent-text: #f2f1ed;
+  --brand: #6684FF;
+  --focus: #6684FF;
+
+  --ok: #8fa874;
+  --fail: #e3695c;
+  --fail-bg: rgba(227, 105, 92, 0.10);
+  --warn: #d9a744;
+  --warn-bg: rgba(217, 167, 68, 0.10);
+  --info: #7fa7d1;
+  --info-bg: rgba(127, 167, 209, 0.10);
+  --stale: #6b6a66;
+  --scrim: rgba(0, 0, 0, 0.55);
+  --material: rgba(21, 21, 21, 0.72);
+  --material-edge: rgba(255, 255, 255, 0.06);
+  --toggle-on: #f2f1ed;
+  --toggle-knob-on: #151515;
+  --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--border);
+}
+
+[data-theme="light"] {
+  --bg: #fcfcfb;
+  --nav-bg: #f8f8f6;
+  --surface: #ffffff;
+  --surface-2: #f2f1ee;
+  --selected: #ebeae6;
+  --border: #e6e5e1;
+  --divider: #efeeeb;
+  --text: #141413;
+  --text-2: #64635e;
+  --text-3: #9b9a95;
+
+  --accent: #141413;
+  --accent-hover: #34332f;
+  --accent-text: #ffffff;
+  --brand: #002FA7;
+  --focus: #002FA7;
+
+  --ok: #5d7143;
+  --fail: #b5443a;
+  --fail-bg: rgba(191, 77, 67, 0.07);
+  --warn: #9a6a0e;
+  --warn-bg: rgba(154, 106, 14, 0.08);
+  --info: #4f7cab;
+  --info-bg: rgba(79, 124, 171, 0.08);
+  --stale: #a3a29d;
+  --scrim: rgba(20, 20, 19, 0.30);
+  --material: rgba(252, 252, 251, 0.74);
+  --material-edge: rgba(0, 0, 0, 0.07);
+  --toggle-on: #141413;
+  --toggle-knob-on: #ffffff;
+  --shadow-pop: 0 8px 24px rgba(20, 20, 19, 0.12), 0 0 0 1px var(--border);
+}

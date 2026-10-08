@@ -1,0 +1,9 @@
+{"type":"item.completed","item":{"id":"think-1","type":"reasoning","text":"先检查输入。\n再检查输出。"}}
+{"type":"item.started","item":{"id":"plan-1","type":"todo_list","items":[{"text":"检查配置","completed":false},{"text":"验证路径","completed":false}]}}
+{"type":"item.updated","item":{"id":"plan-1","type":"todo_list","items":[{"text":"检查配置","completed":true},{"text":"验证路径","completed":false}]}}
+{"type":"item.completed","item":{"id":"files-1","type":"file_change","changes":[{"kind":"add","path":"src/new.ts"},{"kind":"update","path":"src/edit.ts"},{"kind":"delete","path":"src/old.ts"}]}}
+{"type":"turn.failed","error":{"message":"示例回合失败"}}
+{"type":"error","message":"示例顶层错误"}
+{"type":"turn.completed","usage":{}}
+{"type":"future.event","data":"不认识的事件只保留原始日志"}
+无法解析的示例输出

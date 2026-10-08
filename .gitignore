@@ -1,0 +1,12 @@
+node_modules/
+dist/
+out/
+release/
+*.log
+logs/
+.codex-runs/
+.playwright-mcp/
+
+build/fonts/
+build/icons/
+.tmp/

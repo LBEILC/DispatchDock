@@ -1,0 +1,2 @@
+<!-- 应用图标：克莱因蓝 #002FA7 圆角底板 + 白色标记，不随主题变。底板圆角 22.5%，标记占底板 62.5%。 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><rect width="256" height="256" rx="57.6" fill="#002FA7"/><g transform="translate(48 48) scale(6.6667)"><g transform="translate(0.07 0)"><path d="M18.94 14.26A7.3 7.3 0 1 1 17.16 6.84" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round"/><path d="M19.99 9.67L19.14 4.86L15.18 8.82Z" fill="#ffffff" stroke="#ffffff" stroke-width="0.6" stroke-linejoin="round"/><circle cx="12" cy="12" r="2.9" fill="#ffffff"/></g></g></svg>
