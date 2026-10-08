@@ -133,7 +133,7 @@ function expected(skill, host) {
   if (host === 'devin') {
     const overlay = fs.readFileSync(join(project, 'skills/_hosts/devin', `${skill}.md`), 'utf8');
     source = source.replace(/  - Read(\r?\n)  - Grep\r?\n  - Glob/, (_, newline) => `  - read${newline}  - grep${newline}  - glob`);
-    for (const section of skill === 'codex-dispatch' ? ['dispatch', 'wait', 'interrupt'] : ['agents-md', 'claude-md', 'look']) {
+    for (const section of skill === 'codex-dispatch' ? ['dispatch', 'wait', 'interrupt'] : ['agents-md', 'look']) {
       const pattern = new RegExp(`^[ \\t]*<!-- host:${section} -->\\r?\\n[\\s\\S]*?^[ \\t]*<!-- /host:${section} -->(?:\\r?\\n|$)`, 'm');
       source = source.replace(pattern, overlay.match(pattern)[0]);
     }
