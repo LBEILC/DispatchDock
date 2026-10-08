@@ -6,6 +6,8 @@
 
 <p align="center">中文 · <a href="README.en.md">English</a></p>
 
+<p align="center">▶ <a href="https://www.bilibili.com/video/BV1kBHX6CE3d">两分半的介绍视频（B 站）</a></p>
+
 ![任务页：左边是任务列表，右边是选中任务的计划和进展时间线](docs/images/tasks-dark.png)
 
 ## 这是什么

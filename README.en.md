@@ -6,6 +6,8 @@
 
 <p align="center"><a href="README.md">中文</a> · English</p>
 
+<p align="center">▶ <a href="https://www.bilibili.com/video/BV1kBHX6CE3d">2.5-minute intro video (Bilibili, in Chinese)</a></p>
+
 ![The Tasks page: task list on the left, the selected task's plan and progress timeline on the right](docs/images/tasks-dark.png)
 
 > The app's interface is in Chinese for now. The skills are written in Chinese too; the agents that read them work fine in any language.
