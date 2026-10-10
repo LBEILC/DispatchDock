@@ -252,9 +252,32 @@ test('退出前排空大块 stdout，保留最后事件；失败退出码传递'
   const s = setup(t), result = s.invoke([], { FAKE_LARGE_FINAL: '1', FAKE_EXIT: '7', FAKE_STDERR: '1' });
   assert.equal(result.status, 7, result.stderr);
   const rows = jsonl(path.join(s.home, 'runs.jsonl'));
-  assert.equal(jsonl(rows[0].events).at(-1).text.length, 200000);
+  const events = jsonl(rows[0].events);
+  assert.equal(events.filter(e => e.kind === 'say').at(-1).text.length, 200000);
+  assert.equal(events.at(-1).kind, 'error'); assert.equal(events.at(-1).text, '示例 stderr');
   assert.equal(rows.at(-1).exit, 7);
   assert.match(fs.readFileSync(rows[0].raw, 'utf8'), /示例 stderr/);
+});
+
+test('干活方启动即拒绝：stderr 原因进出错事件、进度和标准输出，并附中文提示', t => {
+  const s = setup(t), refusal = 'Not inside a trusted directory and --skip-git-repo-check was not specified.';
+  const result = s.invoke([], { FAKE_REFUSE: refusal });
+  assert.equal(result.status, 1, result.stderr);
+  const rows = jsonl(path.join(s.home, 'runs.jsonl'));
+  assert.deepEqual(rows.map(e => e.event), ['start', 'spawned', 'end']);
+  const errors = jsonl(rows[0].events).filter(e => e.kind === 'error').map(e => e.text);
+  assert.equal(errors.length, 2);
+  assert.equal(errors[0], refusal);
+  assert.match(errors[1], /^当前目录不是 git 仓库/);
+  const progress = fs.readFileSync(rows[0].progress, 'utf8');
+  assert.match(progress, /出错：Not inside a trusted directory/);
+  assert.match(progress, /出错：当前目录不是 git 仓库/);
+  // 原因排在 exit 行之前，后台派发的派活方读输出就能看到。
+  assert.match(result.stdout, /出错：Not inside a trusted directory[^\n]*\r?\n出错：当前目录不是 git 仓库[^\n]*\r?\nexit=1 /);
+  // 成功的任务即使有 stderr 也不报错。
+  const ok = s.invoke([], { FAKE_STDERR: '1' });
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.doesNotMatch(ok.stdout, /出错：/);
 });
 
 test('清单不能写入时任务照常完成；找不到 agent 时记录错误和 end', t => {

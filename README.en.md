@@ -75,10 +75,12 @@ You need:
 
 ## Usage
 
-Just ask in Claude Code, for example:
+Open Claude Code in your project folder (a git repository), or start a session on that folder in the Code tab of the Claude desktop app, then just ask, for example:
 
 - "Hand `docs/specs/012-inventory-drag.md` to Codex"
 - "Have codex add a remember-me option to the login page"
+
+The skills only work in Claude Code; the regular chat in the desktop app can't see them. Start a new session after installing; if typing `/` lists `codex-dispatch`, they are installed.
 
 The model dispatches it in the background with `codex-dispatch` and tells you the record name and where to watch progress. When Codex is done, the model reads the report, checks the commit, runs the checks and tells you the result in plain words.
 

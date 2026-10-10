@@ -2,6 +2,10 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 if (process.argv.includes('--version')) {
   console.log('codex-cli test-fixture');
+} else if (process.env.FAKE_REFUSE) {
+  // 模拟启动即拒绝：不读输入、不输出事件，只在 stderr 留下原因。
+  process.stderr.write(`${process.env.FAKE_REFUSE}\n`);
+  process.exitCode = 1;
 } else {
   let prompt = '';
   for await (const chunk of process.stdin) prompt += chunk;

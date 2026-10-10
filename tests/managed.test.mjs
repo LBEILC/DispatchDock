@@ -22,7 +22,7 @@ async function until(fn, timeout = 10000) {
   while (Date.now() < deadline) { const result = fn(); if (result) return result; await delay(25); }
   throw Error('隔离测试等待超时');
 }
-async function fixture(t, { exit = 0, duration = 150 } = {}) {
+async function fixture(t, { exit = 0, duration = 150, stderr = '' } = {}) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatchdock-managed-'));
   const home = path.join(base, 'home'), repo = path.join(base, 'repo'), host = path.join(base, 'host');
   for (const dir of [home, repo, host]) fs.mkdirSync(dir);
@@ -30,14 +30,14 @@ async function fixture(t, { exit = 0, duration = 150 } = {}) {
     CLAUDE_CONFIG_DIR: host, CODEX_HOME: path.join(base, 'codex'), XDG_CONFIG_HOME: path.join(base, 'xdg'), CODEX_NO_WATCH: '1' };
   for (const key of ['CODEX_DRY_RUN','CODEX_MODEL','CODEX_EFFORT','CODEX_TIER','CODEX_SANDBOX','CODEX_DISPATCH_TEST_AGENT','NODE_OPTIONS','ELECTRON_RUN_AS_NODE']) delete env[key];
   const agent = path.join(base, 'fake-agent.cjs');
-  fs.writeFileSync(path.join(base, 'agent.json'), JSON.stringify({ exit, duration }));
+  fs.writeFileSync(path.join(base, 'agent.json'), JSON.stringify({ exit, duration, stderr }));
   fs.writeFileSync(agent, `const fs=require('node:fs'),path=require('node:path');
 if(process.argv.includes('--version')){console.log('codex-cli fake-managed');process.exit(0);}
 let prompt='';process.stdin.setEncoding('utf8');process.stdin.on('data',s=>prompt+=s);process.stdin.on('end',()=>{
 const settings=JSON.parse(fs.readFileSync(path.join(__dirname,'agent.json'),'utf8'));
 fs.writeFileSync(path.join(__dirname,'echo.json'),JSON.stringify({pid:process.pid,args:process.argv.slice(2),prompt,home:process.env.CODEX_HOME,key:process.env.OPENAI_API_KEY}));
 console.log(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:'隔离任务正在执行'}}));
-setTimeout(()=>{fs.writeFileSync(process.argv[process.argv.indexOf('-o')+1],'隔离汇报');process.exitCode=settings.exit;},settings.duration);
+setTimeout(()=>{fs.writeFileSync(process.argv[process.argv.indexOf('-o')+1],'隔离汇报');if(settings.stderr)process.stderr.write(settings.stderr+'\\n');process.exitCode=settings.exit;},settings.duration);
 });`);
   const configFile = path.join(home, 'config.json');
   fs.writeFileSync(configFile, JSON.stringify({ v: 1, managed: true, watchWindow: 'never', agents: { codex: { path: agent } } }));
@@ -69,12 +69,14 @@ setTimeout(()=>{fs.writeFileSync(process.argv[process.argv.indexOf('-o')+1],'隔
 }
 
 test('托管完整流程：退出码、唯一清单、执行者 PID、预计算配置、进度和清理', async t => {
-  const f = await fixture(t, { exit: 7 }); const { errors } = await f.service();
+  const f = await fixture(t, { exit: 7, stderr: 'Not inside a trusted directory' }); const { errors } = await f.service();
   const waiter = f.launch(f.script, ['隔离任务','补充说明','--name','managed-test','--model','explicit-model'], { CODEX_EFFORT: 'high' });
   const result = await waiter.done;
   assert.equal(result.code, 7, result.stderr);
   assert.match(result.stdout, /^记录名：managed-test\r?\n进度：/);
   assert.match(result.stdout, /托管：任务已交给 DispatchDock/);
+  // 托管时出错原因也要回到等待者的输出里。
+  assert.match(result.stdout, /出错：Not inside a trusted directory\r?\n出错：当前目录不是 git 仓库[^\n]*\r?\nexit=7 /);
   const records = rows(f.home); assert.deepEqual(records.map(r => r.event), ['start','spawned','end']);
   const [start, spawned, end] = records;
   assert.equal(start.managed, true); assert.notEqual(start.pid, waiter.pid); assert.equal(end.exit, 7);

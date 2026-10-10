@@ -87,4 +87,8 @@ export const codex = {
     return { executable: launcher.executable, args, stdin: prompt };
   },
   mapLine,
+  failureHint(stderr) {
+    if (/Not inside a trusted directory/i.test(stderr)) return '当前目录不是 git 仓库，Codex 拒绝运行。在项目目录里先运行 git init，或换到已有的 git 仓库再派发。';
+    return null;
+  },
 };

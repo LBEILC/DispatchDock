@@ -5,9 +5,17 @@ import { createInterface } from 'node:readline';
 import { configCommand, homeDirectory, loadConfig } from './config.mjs';
 import { dispatcher, parseArgs, taskDetails } from './options.mjs';
 import { recordPaths, registryWriter } from './records.mjs';
-import { formatProgress, progressFooter, progressHeader } from './progress.mjs';
+import { clip, formatProgress, progressFooter, progressHeader } from './progress.mjs';
 import { openWatch, shouldWatch, viewerTakesOver } from './watch.mjs';
 import { acceptsManaged, managedEnvironment, validRequest, existingPaths, handoff, fallbackMessage, managedMessage } from './managed.mjs';
+
+function errorTexts(file) {
+  try {
+    return readFileSync(file, 'utf8').split('\n').flatMap(line => {
+      try { const e = JSON.parse(line); return e?.kind === 'error' ? [String(e.text)] : []; } catch { return []; }
+    });
+  } catch { return []; }
+}
 
 export async function run({ adapter, scriptPath, args = process.argv.slice(2), env = process.env, root = process.cwd() }) {
   if (args[0] === '--config') { console.log(configCommand(args.slice(1), env)); return 0; }
@@ -53,7 +61,11 @@ export async function run({ adapter, scriptPath, args = process.argv.slice(2), e
       args: { task: parsed.task, extra: parsed.extra, role: parsed.opts.role ?? null, spec: details.spec },
       settings: Object.fromEntries(['model','effort','tier','sandbox','path'].map(key => [key, settings[key]])), dispatcher: source, env: managedEnvironment(env) }, announce,
       { startTimeout: Number(env.CODEX_DISPATCH_TEST_START_TIMEOUT_MS) > 0 ? Number(env.CODEX_DISPATCH_TEST_START_TIMEOUT_MS) : 15000 });
-    if ('exit' in result) { console.log(`exit=${result.exit} report=${paths.report}`); return result.exit; }
+    if ('exit' in result) {
+      if (result.exit !== 0) for (const text of errorTexts(paths.events)) console.log(`出错：${clip(text)}`);
+      console.log(`exit=${result.exit} report=${paths.report}`);
+      return result.exit;
+    }
     announce(fallbackMessage(result.reason));
   }
   const detection = await adapter.detect({ env, settings });
@@ -64,10 +76,12 @@ export async function run({ adapter, scriptPath, args = process.argv.slice(2), e
     dispatcher: source, ...(request ? { managed: true } : {}),
   });
   let seq = 0, lastSay = null;
+  const errors = [];
   const emit = (event, at = Date.now()) => {
     const unified = { ...event, v: 1, seq: ++seq, at };
     appendFileSync(paths.events, `${JSON.stringify(unified)}\n`);
     if (event.kind === 'say') lastSay = event.text;
+    if (event.kind === 'error') errors.push(event.text);
     for (const line of formatProgress(unified)) progress(line, at);
   };
   const finish = code => {
@@ -75,6 +89,8 @@ export async function run({ adapter, scriptPath, args = process.argv.slice(2), e
     const minutes = ((Date.now() - started) / 60000).toFixed(1);
     appendFileSync(paths.progress, progressFooter(code, minutes, paths.report));
     registry({ event: 'end', id, exit: code, at: Date.now(), minutes: Number(minutes) });
+    // 后台派发时进度不打印到标准输出；失败原因放在退出码前面，派活方不用翻日志就能看到。
+    if (code !== 0 && !interactive) for (const text of errors) console.log(`出错：${clip(text)}`);
     console.log(`exit=${code} report=${paths.report}`);
     return code ?? 1;
   };
@@ -98,7 +114,8 @@ export async function run({ adapter, scriptPath, args = process.argv.slice(2), e
       for (const mapped of adapter.mapLine(line, { root })) emit(mapped, at);
     });
     // 保留旧行为：stderr 原样存入 raw，不当成 stdout 的事件流。
-    child.stderr.on('data', chunk => appendFileSync(paths.raw, chunk));
+    let stderr = '';
+    child.stderr.on('data', chunk => { appendFileSync(paths.raw, chunk); stderr = (stderr + chunk).slice(-4096); });
     let failed = false;
     child.on('error', error => { failed = true; emit({ kind: 'error', text: `启动 Codex 失败：${error.message}` }); });
     child.stdin.on('error', error => {
@@ -118,6 +135,13 @@ export async function run({ adapter, scriptPath, args = process.argv.slice(2), e
     // close 在 stdout/stderr 完全排空后触发，避免 exit 提前丢掉最后的汇报事件。
     child.on('close', code => {
       for (const [signal, handler] of handlers) process.off(signal, handler);
+      // 干活方启动即退出时，原因往往只在 stderr 里（例如 Codex 拒绝在非 git 目录运行），补成出错事件。
+      if (!failed && code !== 0) {
+        const tail = stderr.split(/\r?\n/).map(line => line.trim()).filter(Boolean).slice(-5).join('\n');
+        if (tail) emit({ kind: 'error', text: tail });
+        const hint = tail && adapter.failureHint?.(stderr);
+        if (hint) emit({ kind: 'error', text: hint });
+      }
       resolve(finish(failed ? 1 : code));
     });
   });

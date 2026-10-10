@@ -13,8 +13,9 @@
 | `detect({env, settings})` | 返回（或异步返回）`{installed, version}`；取不到版本写 `null`，可携带适配器私有的 `launcher` / `error`。检测只运行版本命令，不发任务 |
 | `command({root, report, prompt, settings, detection, env})` | 返回 `{executable, args, stdin}`，分别为可执行文件、字符串数组、输入文本。公共层固定 `shell:false`；检测结果原样传回此处 |
 | `mapLine(line, {root})` | 一行 stdout 转成零到多个事件数组。事件只含协议规定的 `kind` 及附加字段，`v/seq/at` 由公共层追加。未知 JSON 事件丢弃，非空非 JSON 行转 `text` |
+| `failureHint(stderr)`（可选） | 干活方非 0 退出时，公共层先把 stderr 末尾几行写成一条 `error` 事件；适配器认得这类原因时返回一句中文说明（写成第二条 `error`），认不得返回 `null` |
 
-`root`、`report` 是绝对路径。`settings` 包含 `model/effort/tier/sandbox/path/watchWindow`。模型、强度、档位为 `null` 时不得拼入参数。stdout 会同时存入原始日志，JSON 对象补 `_at`；stderr 保持旧版原文写入方式。命令退出等待 `close`，确保所有输出读取完毕后才写 `end`。
+`root`、`report` 是绝对路径。`settings` 包含 `model/effort/tier/sandbox/path/watchWindow`。模型、强度、档位为 `null` 时不得拼入参数。stdout 会同时存入原始日志，JSON 对象补 `_at`；stderr 保持旧版原文写入方式；非 0 退出时末尾几行另作 `error` 事件。后台运行（非交互）且退出码非 0 时，所有 `error` 事件在 `exit=` 行之前逐条打印为“出错：…”，托管时由等待者从事件文件读出后打印。命令退出等待 `close`，确保所有输出读取完毕后才写 `end`。
 
 统一事件以 [文件协议](../../../docs/protocol.md) 为准。`say/think` 保留完整换行；命令 `start/end` 用同一个 `id`；命令结果按前 200 行且最多 16384 字节截断；文件路径相对 `root`，使用 `/` 分隔。`progress.log` 只调用公共 `formatProgress`，不能再解析原始事件。
 
