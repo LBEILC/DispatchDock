@@ -1,9 +1,17 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, openSync, readSync, closeSync, statSync } from 'node:fs';
 import { join, isAbsolute } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { waitInterval } from './wait.mjs';
 
-export const managedMessage = '托管：任务已交给 DispatchDock，关掉当前会话也不会中断。要停止，在 DispatchDock 里停。';
-export const fallbackMessage = reason => `托管：DispatchDock 没有接手（${reason}），改为直接运行`;
+function appName(value) {
+  return typeof value === 'string' && value.trim() ? Array.from(value.trim()).slice(0, 40).join('') : 'DispatchDock';
+}
+export function viewerApp(home) {
+  try { return appName(JSON.parse(readFileSync(join(home, 'viewer.json'), 'utf8'))?.app); }
+  catch { return 'DispatchDock'; }
+}
+export const managedMessage = app => `托管：任务已交给 ${appName(app)}，关掉当前会话也不会中断。要停止，在 ${appName(app)} 里停。`;
+export const fallbackMessage = (reason, app) => `托管：${appName(app)} 没有接手（${reason}），改为直接运行`;
 export const environmentKeys = ['PATH', 'CODEX_HOME', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP', 'TMPDIR', 'SystemRoot', 'ComSpec', 'PATHEXT', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'OPENAI_BASE_URL'];
 export function managedEnvironment(env) {
   return Object.fromEntries(environmentKeys.flatMap(key => {
@@ -66,7 +74,7 @@ export function terminalReader(home, id, onStart = () => {}) {
     return null;
   };
 }
-export async function handoff(home, request, announce, { timeout = 5000, startTimeout = 15000, interval = 50 } = {}) {
+export async function handoff(home, request, announce, { timeout = 5000, startTimeout = 15000, interval = waitInterval } = {}) {
   const dir = join(home, 'managed'), base = join(dir, request.id);
   mkdirSync(dir, { recursive: true });
   writeFileSync(base + '.tmp', JSON.stringify(request), { flag: 'wx', mode: 0o600 });
@@ -81,7 +89,7 @@ export async function handoff(home, request, announce, { timeout = 5000, startTi
     }
     const ended = terminal();
     if (!accepted && (existsSync(base + '.claimed.json') || existsSync(base + '.running.json') || started || ended)) {
-      accepted = true; startDeadline = Date.now() + startTimeout; announce(managedMessage);
+      accepted = true; startDeadline = Date.now() + startTimeout; announce(managedMessage(request.app));
     }
     if (accepted && ended) return { exit: ended.event === 'end' ? ended.exit ?? 1 : 1 };
     if (accepted && !started && Date.now() >= startDeadline) {

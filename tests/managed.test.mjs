@@ -9,7 +9,7 @@ import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createPlan, executePlan } from '../installer/lib/install.mjs';
 import { createManaged } from '../app/src/main/managed.mjs';
-import { handoff, terminalReader, managedEnvironment, validRequest } from '../skills/codex-dispatch/lib/managed.mjs';
+import { handoff, terminalReader, managedEnvironment, validRequest, viewerApp, managedMessage } from '../skills/codex-dispatch/lib/managed.mjs';
 import { registryWriter } from '../skills/codex-dispatch/lib/records.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -143,6 +143,63 @@ async function requestFrom(f) {
     return name && path.join(dir, name);
   });
 }
+
+for (const [label, app, expected] of [
+  ['默认名字', 'DispatchDock', 'DispatchDock'],
+  ['其他名字', '  示例监控器  ', '示例监控器'],
+  ['空', ' \t ', 'DispatchDock'],
+  ['缺失', undefined, 'DispatchDock'],
+  ['超长', '监控🚀'.repeat(20), '监控🚀'.repeat(13) + '监'],
+  ['非法类型', 123, 'DispatchDock'],
+]) for (const accepted of [true, false]) test(`托管软件名 ${label}：${accepted ? '接手成功' : '拒绝回退'}且输出与进度一致`, async t => {
+  const f = await fixture(t), viewer = path.join(f.home, 'viewer.json');
+  fs.writeFileSync(viewer, JSON.stringify({ ...json(viewer), app }));
+  const waiter = f.launch(), file = await requestFrom(f);
+  const request = json(file);
+  assert.equal(request.app, expected);
+  assert.equal(validRequest(request), true);
+  // 请求发出后更换软件名，两端仍使用请求中的快照。
+  fs.writeFileSync(viewer, JSON.stringify({ ...json(viewer), app: '后来启动的监控器' }));
+  if (accepted) await f.service();
+  else {
+    fs.writeFileSync(file, JSON.stringify({ ...request, reason: '隔离测试拒绝' }));
+    fs.renameSync(file, file.replace('.request.json', '.rejected.json'));
+  }
+  const result = await waiter.done;
+  assert.equal(result.code, 0, result.stderr);
+  const message = accepted
+    ? `托管：任务已交给 ${expected}，关掉当前会话也不会中断。要停止，在 ${expected} 里停。`
+    : `托管：${expected} 没有接手（隔离测试拒绝），改为直接运行`;
+  assert.deepEqual(result.stdout.split(/\r?\n/).filter(line => line.startsWith('托管：')), [message]);
+  const start = rows(f.home)[0];
+  assert.equal(start.managed, accepted ? true : undefined);
+  const progress = fs.readFileSync(start.progress, 'utf8').split(/\r?\n/).filter(line => line.includes('托管：'));
+  assert.equal(progress.length, 1);
+  assert.equal(progress[0].replace(/^\[[^\]]+\] /, ''), message);
+});
+
+test('旧请求没有 app：执行者使用默认名字，不读取当前 viewer 名字', async t => {
+  const f = await fixture(t), waiter = f.launch(), file = await requestFrom(f);
+  const request = json(file); delete request.app;
+  fs.writeFileSync(file, JSON.stringify(request));
+  fs.writeFileSync(path.join(f.home, 'viewer.json'), JSON.stringify({ pid: process.pid, acceptsManaged: true, app: '另一个监控器' }));
+  await f.service();
+  const result = await waiter.done;
+  assert.equal(result.code, 0, result.stderr);
+  const message = managedMessage();
+  assert.ok(result.stdout.includes(message));
+  assert.ok(fs.readFileSync(rows(f.home)[0].progress, 'utf8').includes(message));
+});
+
+test('viewer 无法读取或内容无效时软件名回退', async t => {
+  const f = await fixture(t), viewer = path.join(f.home, 'viewer.json');
+  fs.unlinkSync(viewer);
+  assert.equal(viewerApp(f.home), 'DispatchDock');
+  for (const content of ['{', 'null', '[]', '{"app":false}']) {
+    fs.writeFileSync(viewer, content);
+    assert.equal(viewerApp(f.home), 'DispatchDock');
+  }
+});
 
 test('请求不写密钥，执行者从软件继承密钥并用请求覆盖普通环境', async t => {
   const f = await fixture(t);

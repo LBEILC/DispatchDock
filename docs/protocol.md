@@ -140,12 +140,13 @@
 
 1. **等待者先做完派发前的准备**：解析参数、读配置、按第 3 节占好记录名（独占创建 `progress.log`）、生成任务 `id`。然后写 `<id>.request.json`，先写临时文件再改名：
    ```json
-   { "v": 1, "id": "…", "at": 0, "script": "<codex-task.mjs 绝对路径>", "node": "<等待者的 node 可执行文件绝对路径>",
+   { "v": 1, "id": "…", "app": "DispatchDock", "at": 0, "script": "<codex-task.mjs 绝对路径>", "node": "<等待者的 node 可执行文件绝对路径>",
      "repo": "<仓库根>", "name": "<已占好的记录名>", "args": { "task": "…", "extra": "…", "role": null, "spec": null },
      "settings": { "model": null, "effort": null, "tier": null, "sandbox": "workspace-write", "path": null },
      "dispatcher": { "host": "claude-code", "session": null },
      "env": { "PATH": "…", "CODEX_HOME": "…" } }
    ```
+   - 可选字段 `app`：等待者从 `viewer.json` 的 `app` 取的软件名（去首尾空白，最长 40 个字符，超长截断；读不到或不合法用 `DispatchDock`）。执行者写托管提示时用它，没有这个字段就用 `DispatchDock`。下文提示里的 `<软件名>` 都指它。
    - `settings` 是等待者已经按优先级算好的结果，执行者直接用，不再读环境变量和 `config.json`。
    - `env` 只放找到和运行干活方需要的、**不含机密**的变量：`PATH`、`CODEX_HOME`、`HOME`、`USERPROFILE`、`APPDATA`、`LOCALAPPDATA`、`TEMP`、`TMP`、`TMPDIR`、`SystemRoot`、`ComSpec`、`PATHEXT`、代理变量（`HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY`）、`OPENAI_BASE_URL`。**密钥、令牌一律不写进请求文件**（例如 `OPENAI_API_KEY`）。执行者的环境 = 软件自己的环境，再用请求里的 `env` 覆盖。
 2. **软件认领**：发现请求后先核对，通过后用**改名**认领：`<id>.request.json` → `<id>.claimed.json`，改名成功才算认领。随后启动执行者：`<node> <script> --run-request <claimed 文件>`。
@@ -160,9 +161,9 @@
 4. **等待者等认领**：最多等 5 秒。
    - 看到 `rejected`：立刻改为自己运行。
    - 超时：自己把 `<id>.request.json` 改名为 `<id>.withdrawn.json`，改名成功就自己运行；改名失败说明已被认领，按托管继续。
-   - 自己运行时，在进度里写一行：`托管：DispatchDock 没有接手（<原因或"超时">），改为直接运行`。
+   - 自己运行时，在进度里写一行：`托管：<软件名> 没有接手（<原因或"超时">），改为直接运行`。
 5. **认领成功后**：
-   - 等待者在标准输出打印：`托管：任务已交给 DispatchDock，关掉当前会话也不会中断。要停止，在 DispatchDock 里停。` 进度文件里的同一行由**执行者**写（等待者可能提前被结束）。
+   - 等待者在标准输出打印：`托管：任务已交给 <软件名>，关掉当前会话也不会中断。要停止，在 <软件名> 里停。` 进度文件里的同一行由**执行者**写（等待者可能提前被结束）。
    - **兜底**：等待者 15 秒内还没在 `runs.jsonl` 看到这个 `id` 的 `start`，就尝试把 `<id>.claimed.json` 改名为 `<id>.withdrawn.json`。改名成功说明执行者没起来（例如软件在认领后崩溃），等待者自己运行，并写"没有接手"那一行，原因写 `软件没有启动任务`；改名失败说明执行者已经接手，继续等。等待期间看到 `<id>.rejected.json` 也立刻自己运行。
    - 之后等待者轮询 `runs.jsonl`，读到同一 `id` 的 `end` 后用它的 `exit` 退出，读到 `interrupted` 用 1 退出；打印和非托管时一样的结束行。
    - 等待者被结束，不影响任务。

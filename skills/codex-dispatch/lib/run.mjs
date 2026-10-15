@@ -7,17 +7,15 @@ import { dispatcher, parseArgs, taskDetails } from './options.mjs';
 import { recordPaths, registryWriter } from './records.mjs';
 import { clip, formatProgress, progressFooter, progressHeader } from './progress.mjs';
 import { openWatch, shouldWatch, viewerTakesOver } from './watch.mjs';
-import { acceptsManaged, managedEnvironment, validRequest, existingPaths, handoff, fallbackMessage, managedMessage } from './managed.mjs';
-
-function errorTexts(file) {
-  try {
-    return readFileSync(file, 'utf8').split('\n').flatMap(line => {
-      try { const e = JSON.parse(line); return e?.kind === 'error' ? [String(e.text)] : []; } catch { return []; }
-    });
-  } catch { return []; }
-}
+import { acceptsManaged, viewerApp, managedEnvironment, validRequest, existingPaths, handoff, fallbackMessage, managedMessage } from './managed.mjs';
+import { printCompletion } from './completion.mjs';
+import { waitForTask } from './wait.mjs';
 
 export async function run({ adapter, scriptPath, args = process.argv.slice(2), env = process.env, root = process.cwd() }) {
+  if (args[0] === '--wait') {
+    if (args.length > 2 || args[1]?.startsWith('--')) throw Error('用法：node codex-task.mjs --wait [记录名]');
+    return waitForTask(homeDirectory(env), root, args[1]);
+  }
   if (args[0] === '--config') { console.log(configCommand(args.slice(1), env)); return 0; }
   let requestFile = args[0] === '--run-request' ? args[1] : null;
   if (requestFile) {
@@ -52,21 +50,20 @@ export async function run({ adapter, scriptPath, args = process.argv.slice(2), e
     if (interactive) console.log(line);
   };
   if (warning) { progress(warning); if (!interactive) console.log(warning); }
-  if (request) progress(managedMessage);
+  if (request) progress(managedMessage(request.app));
   const id = request?.id ?? `${paths.name}-${started}-${process.pid}`;
   const source = request?.dispatcher ?? dispatcher(parsed.opts.host, env, scriptPath);
   if (!request && acceptsManaged(home, config.managed === true)) {
-    const announce = text => { if (text === managedMessage) console.log(text); else { progress(text); if (!interactive) console.log(text); } };
-    const result = await handoff(home, { v: 1, id, at: started, script: scriptPath, node: process.execPath, repo: root, name: paths.name,
+    const app = viewerApp(home);
+    const announce = text => { if (text === managedMessage(app)) console.log(text); else { progress(text); if (!interactive) console.log(text); } };
+    const result = await handoff(home, { v: 1, id, app, at: started, script: scriptPath, node: process.execPath, repo: root, name: paths.name,
       args: { task: parsed.task, extra: parsed.extra, role: parsed.opts.role ?? null, spec: details.spec },
       settings: Object.fromEntries(['model','effort','tier','sandbox','path'].map(key => [key, settings[key]])), dispatcher: source, env: managedEnvironment(env) }, announce,
       { startTimeout: Number(env.CODEX_DISPATCH_TEST_START_TIMEOUT_MS) > 0 ? Number(env.CODEX_DISPATCH_TEST_START_TIMEOUT_MS) : 15000 });
     if ('exit' in result) {
-      if (result.exit !== 0) for (const text of errorTexts(paths.events)) console.log(`出错：${clip(text)}`);
-      console.log(`exit=${result.exit} report=${paths.report}`);
-      return result.exit;
+      return printCompletion(result.exit, paths);
     }
-    announce(fallbackMessage(result.reason));
+    announce(fallbackMessage(result.reason, app));
   }
   const detection = await adapter.detect({ env, settings });
   registry({ event: 'start', id, repo: root, name: paths.name, spec: details.spec ? relative(root, resolvePath(root, details.spec)).replaceAll('\\', '/') : null,
