@@ -314,7 +314,7 @@ test('派发信号保留 interrupted 记录，不停止其他进程', t => {
   const s = setup(t), wrapper = path.join(s.base, '信号 入口.mjs');
   const runURL = new URL('../skills/codex-dispatch/lib/run.mjs', import.meta.url).href;
   const adapterURL = new URL('../skills/codex-dispatch/adapters/codex.mjs', import.meta.url).href;
-  // 假 agent 输出首行后，测试入口自行触发信号；假 agent 正常结束，不调用系统进程终止接口。
+  // 假 agent 输出首行后，测试入口自行触发信号；处理器只结束本测试的假 agent 树。
   fs.writeFileSync(wrapper, `import { run } from ${JSON.stringify(runURL)};
 import { codex } from ${JSON.stringify(adapterURL)};
 const adapter = { ...codex, mapLine(line, context) { process.emit('SIGTERM'); return codex.mapLine(line, context); } };

@@ -1,11 +1,11 @@
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-export function registryWriter(home) {
+export function registryWriter(home, { separate = false } = {}) {
   return record => {
     try {
       mkdirSync(home, { recursive: true });
-      appendFileSync(join(home, 'runs.jsonl'), `${JSON.stringify({ v: 1, ...record })}\n`);
+      appendFileSync(join(home, 'runs.jsonl'), `${separate ? '\n' : ''}${JSON.stringify({ v: 1, ...record })}\n`);
     } catch { /* 协议规定：清单写入失败不影响任务。 */ }
   };
 }

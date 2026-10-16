@@ -10,7 +10,7 @@ export function viewerApp(home) {
   try { return appName(JSON.parse(readFileSync(join(home, 'viewer.json'), 'utf8'))?.app); }
   catch { return 'DispatchDock'; }
 }
-export const managedMessage = app => `托管：任务已交给 ${appName(app)}，关掉当前会话也不会中断。要停止，在 ${appName(app)} 里停。`;
+export const managedMessage = app => `托管：任务已交给 ${appName(app)}，关掉当前会话也不会中断。`;
 export const fallbackMessage = (reason, app) => `托管：${appName(app)} 没有接手（${reason}），改为直接运行`;
 export const environmentKeys = ['PATH', 'CODEX_HOME', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP', 'TMPDIR', 'SystemRoot', 'ComSpec', 'PATHEXT', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'OPENAI_BASE_URL'];
 export function managedEnvironment(env) {

@@ -69,6 +69,7 @@ export async function runInstaller(args, { env = process.env, platform = process
     const hadPrevious = plan.items.some(i => i.action !== 'skip' && i.state !== 'missing');
     output(`${action !== '安装' || hadPrevious ? `原来的版本已备份到 ${result.backup}。` : ''}要撤销这次${action}：node installer/install.mjs --rollback`);
   }
+  if (result.leftovers.length) output(`有临时文件没能删除，可以手动删掉：${result.leftovers.join('；')}`);
   const home = homeDirectory(env, platform);
   if (result.changed.some(i => i.action === 'install') && interactive && !options.noConfig && !readConfig(home).exists) {
     output('设置派发默认值（直接回车 = 跟随 Codex 自己的配置）');

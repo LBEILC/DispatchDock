@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
+import mutableFs from 'node:fs';
 import { join, dirname, resolve, relative, isAbsolute } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -32,6 +33,282 @@ function setup(t) {
 }
 function install(s, extra = {}) { return executePlan(createPlan({ ...s.options, ...extra }), s.options); }
 const write = (file, text) => { fs.mkdirSync(dirname(file), { recursive: true }); fs.writeFileSync(file, text); };
+
+function blockRename(t, predicate, code) {
+  const rename = mutableFs.renameSync;
+  t.mock.method(mutableFs, 'renameSync', (from, to) => {
+    if (predicate(from, to)) throw Object.assign(new Error(`模拟改名失败：${code}`), { code });
+    return rename(from, to);
+  });
+}
+function noTemporary(s) {
+  assert.ok(![...readTree(s.base).keys()].some(name => /\.dispatchdock-(new|old)-|\.pending-/.test(name)));
+  assert.deepEqual(fs.readdirSync(join(s.home, 'staging')), []);
+}
+
+function onlySkillDirectories(s) {
+  for (const { root } of detectHosts(s.options)) {
+    if (fs.existsSync(root)) assert.ok(fs.readdirSync(root).every(name => ['codex-dispatch', 'dual-role-workflow'].includes(name)));
+  }
+}
+
+test('正常及 EXDEV 就地更新全程只在技能根目录放目标目录', t => {
+  const s = setup(t); install(s);
+  const rename = mutableFs.renameSync;
+  let crossVolume = false, blocked = 0, commits = 0;
+  t.mock.method(mutableFs, 'renameSync', (from, to) => {
+    onlySkillDirectories(s);
+    if (from.includes('.dispatchdock-new-') || to.includes('.dispatchdock-old-')) {
+      const staged = from.includes('.dispatchdock-new-') ? from : to;
+      assert.equal(dirname(dirname(staged)), join(s.home, 'staging'));
+      if (crossVolume) { blocked++; throw Object.assign(new Error('模拟跨卷'), { code: 'EXDEV' }); }
+    }
+    const result = rename(from, to);
+    onlySkillDirectories(s);
+    return result;
+  });
+  for (const inPlace of [false, true]) {
+    crossVolume = inPlace;
+    const plan = createPlan(s.options);
+    for (const item of plan.items) item.files.set('更新.txt', { data: Buffer.from(String(inPlace)) });
+    const result = executePlan(plan, { ...s.options, onWrite() { onlySkillDirectories(s); }, onCommit() { commits++; onlySkillDirectories(s); } });
+    assert.deepEqual(result.leftovers, []);
+    for (const item of result.changed) {
+      assert.equal(installationStatus(item.target, item.host, item.skill).state, 'owned');
+      assert.equal(fs.readFileSync(join(item.target, '更新.txt'), 'utf8'), String(inPlace));
+    }
+    onlySkillDirectories(s); noTemporary(s);
+  }
+  assert.equal(commits, 8); assert.equal(blocked, 4);
+});
+
+test('就地更新后的暂存清理失败保留更新，返回残留并在命令行摘要后提示', async t => {
+  const s = setup(t); install(s);
+  for (const item of createPlan(s.options).items) write(join(item.target, '旧版.txt'), '旧版内容');
+  blockRename(t, from => detectHosts(s.options).some(h => dirname(from) === h.root), 'EPERM');
+  const remove = mutableFs.rmSync, blocked = [];
+  t.mock.method(mutableFs, 'rmSync', (file, options) => {
+    onlySkillDirectories(s);
+    if (file.includes('.dispatchdock-new-') && fs.existsSync(file)) {
+      assert.equal(dirname(dirname(file)), join(s.home, 'staging'));
+      blocked.push(file); throw Object.assign(new Error('模拟暂存占用'), { code: 'EBUSY' });
+    }
+    return remove(file, options);
+  });
+  const output = [];
+  const result = await runInstaller(['--yes', '--no-config', '--replace-existing'], { ...s.options, output: line => output.push(line) });
+  assert.equal(blocked.length, 4); assert.deepEqual(result.leftovers, blocked);
+  assert.equal(output.at(-1), `有临时文件没能删除，可以手动删掉：${blocked.join('；')}`);
+  assert.match(output.at(-2), /要撤销这次安装/);
+  for (const item of result.changed) {
+    assert.equal(installationStatus(item.target, item.host, item.skill).state, 'owned');
+    assert.ok(!fs.existsSync(join(item.target, '旧版.txt')));
+  }
+  assert.ok(blocked.every(file => fs.existsSync(file)));
+  assert.ok(fs.existsSync(result.backup));
+  t.mock.restoreAll();
+});
+
+test('开始时清理十分钟前的 staging 子目录，保留新目录并跳过删除失败', t => {
+  const s = setup(t), staging = join(s.home, 'staging');
+  const old = join(staging, '旧残留'), recent = join(staging, '新残留'), locked = join(staging, '被占用');
+  for (const dir of [old, recent, locked]) write(join(dir, '内容.txt'), '内容');
+  const past = new Date(Date.now() - 11 * 60 * 1000);
+  for (const dir of [old, locked]) fs.utimesSync(dir, past, past);
+  const remove = mutableFs.rmSync;
+  t.mock.method(mutableFs, 'rmSync', (file, options) => {
+    if (file === locked) throw Object.assign(new Error('模拟旧目录占用'), { code: 'EPERM' });
+    return remove(file, options);
+  });
+  const result = install(s);
+  assert.deepEqual(result.leftovers, []);
+  assert.ok(!fs.existsSync(old)); assert.ok(fs.existsSync(recent)); assert.ok(fs.existsSync(locked));
+  assert.deepEqual(fs.readdirSync(staging).sort(), ['新残留', '被占用'].sort());
+  fs.utimesSync(recent, past, past);
+  assert.deepEqual(executePlan({ items: [] }, s.options), { changed: [], backup: null, leftovers: [] });
+  assert.ok(!fs.existsSync(recent));
+  t.mock.restoreAll();
+});
+
+test('完成后旧目录和多余备份清理失败均不回退且继续清理其他项', t => {
+  const s = setup(t); install(s);
+  for (let i = 0; i < 4; i++) install(s);
+  const oldest = join(s.home, 'backups', fs.readdirSync(join(s.home, 'backups')).sort()[0]);
+  const remove = mutableFs.rmSync;
+  let blockedOld;
+  t.mock.method(mutableFs, 'rmSync', (file, options) => {
+    if (file.includes('.dispatchdock-old-') && fs.existsSync(file) && !blockedOld) blockedOld = file;
+    if (file === blockedOld || file === oldest) throw Object.assign(new Error('模拟清理失败'), { code: 'EPERM' });
+    return remove(file, options);
+  });
+  const plan = createPlan(s.options);
+  for (const item of plan.items) item.files.set('新内容.txt', { data: Buffer.from('新内容') });
+  const result = executePlan(plan, s.options);
+  assert.deepEqual(result.leftovers, [blockedOld, oldest]);
+  for (const item of result.changed) {
+    assert.equal(installationStatus(item.target, item.host, item.skill).state, 'owned');
+    assert.equal(fs.readFileSync(join(item.target, '新内容.txt'), 'utf8'), '新内容');
+  }
+  assert.deepEqual(fs.readdirSync(dirname(blockedOld)), [blockedOld.split(/[\\/]/).at(-1)]);
+  t.mock.restoreAll();
+});
+
+test('EPERM 就地升级清理旧文件和类型冲突，标记最后写，回退恢复旧版本', t => {
+  const s = setup(t), plan = createPlan(s.options);
+  const first = plan.items[0];
+  first.files.set('过期/', null);
+  first.files.set('过期/旧.txt', { data: Buffer.from('旧内容') });
+  first.files.set('类型', { data: Buffer.from('原文件') });
+  executePlan(plan, s.options);
+  const markerPath = join(s.target(), '.dispatchdock.json');
+  const record = JSON.parse(fs.readFileSync(markerPath)); record.version = '0.0.9';
+  write(markerPath, JSON.stringify(record));
+  const before = snapshot(s.target());
+  const writes = [], writeFile = mutableFs.writeFileSync;
+  t.mock.method(mutableFs, 'writeFileSync', (file, ...args) => { if (dirname(file) === s.target()) writes.push(file); return writeFile(file, ...args); });
+  blockRename(t, from => from === s.target(), 'EPERM');
+  const next = createPlan(s.options);
+  next.items[0].files.set('类型/', null);
+  next.items[0].files.set('类型/新.txt', { data: Buffer.from('新内容') });
+  executePlan(next, s.options);
+  assert.equal(writes.at(-1), markerPath);
+  assert.equal(installationStatus(s.target(), 'claude-code', 'codex-dispatch').state, 'owned');
+  const installed = JSON.parse(fs.readFileSync(markerPath)); assert.equal(installed.version, version);
+  for (const [name, digest] of Object.entries(installed.files)) assert.equal(createHash('sha256').update(fs.readFileSync(join(s.target(), name))).digest('hex'), digest);
+  assert.ok(!fs.existsSync(join(s.target(), '过期'))); noTemporary(s);
+  rollback(s.options); assert.deepEqual(snapshot(s.target()), before); noTemporary(s);
+});
+
+test('首次安装暂存目录 EBUSY 和已有目录移走后 EBUSY 均可就地完成', t => {
+  const s = setup(t);
+  blockRename(t, from => from.includes('.dispatchdock-new-'), 'EBUSY');
+  for (let i = 0; i < 2; i++) {
+    const result = install(s);
+    for (const item of result.changed) assert.equal(installationStatus(item.target, item.host, item.skill).state, 'owned');
+    noTemporary(s);
+  }
+});
+
+test('卸载改名 EPERM 时删除内容及目录', t => {
+  const s = setup(t); install(s);
+  blockRename(t, from => from === s.target(), 'EPERM');
+  uninstall(s.options); assert.ok(!fs.existsSync(s.target())); noTemporary(s);
+});
+
+test('就地写入中途失败恢复所有目标并删除本批备份，保留原始异常', t => {
+  const s = setup(t); install(s);
+  const before = snapshot(s.base), target = s.target('devin');
+  blockRename(t, from => from === target, 'EPERM');
+  const original = new Error('模拟中途写入失败'), writeFile = mutableFs.writeFileSync;
+  let count = 0;
+  t.mock.method(mutableFs, 'writeFileSync', (file, ...args) => {
+    if (file.startsWith(target) && ++count === 2) throw original;
+    return writeFile(file, ...args);
+  });
+  assert.throws(() => install(s), error => error === original);
+  assert.deepEqual(snapshot(s.base), before); noTemporary(s);
+});
+
+test('旧目录移入 staging 后替换和恢复均失败时保留备份及旧目录', t => {
+  const s = setup(t); install(s);
+  const plan = createPlan(s.options), target = s.target('devin');
+  const before = new Map(plan.items.map(item => [item.target, snapshot(item.target)]));
+  const backupRoot = join(s.home, 'backups'), batches = fs.readdirSync(backupRoot);
+  const original = Object.assign(new Error('模拟移走旧目录后替换失败'), { code: 'EACCES' });
+  const rename = mutableFs.renameSync, writeFile = mutableFs.writeFileSync;
+  let old, recoveryFailed = false;
+  t.mock.method(mutableFs, 'renameSync', (from, to) => {
+    if (to === target && from.includes('.dispatchdock-new-')) throw original;
+    const result = rename(from, to);
+    if (from === target && to.includes('.dispatchdock-old-')) old = to;
+    return result;
+  });
+  t.mock.method(mutableFs, 'writeFileSync', (file, ...args) => {
+    if (dirname(file) === target) {
+      recoveryFailed = true;
+      throw new Error('模拟恢复失败');
+    }
+    return writeFile(file, ...args);
+  });
+  assert.throws(() => executePlan(plan, s.options), error => error === original);
+  assert.ok(recoveryFailed); assert.ok(old);
+  const added = fs.readdirSync(backupRoot).filter(name => !batches.includes(name));
+  assert.equal(added.length, 1);
+  const backup = join(backupRoot, added[0]);
+  assert.ok(fs.existsSync(join(backup, 'backup.json')));
+  for (const item of plan.items) {
+    assert.deepEqual(snapshot(join(backup, item.host, item.skill)), before.get(item.target));
+    if (item.target !== target) assert.deepEqual(snapshot(item.target), before.get(item.target));
+  }
+  assert.deepEqual(snapshot(old), before.get(target));
+  assert.deepEqual(fs.readdirSync(dirname(old)), [old.split(/[\\/]/).at(-1)]);
+  assert.equal(original.code, 'EACCES');
+  assert.ok(original.message.startsWith('模拟移走旧目录后替换失败'));
+  assert.ok(original.message.includes(`未能恢复或清理：${target}`));
+  assert.ok(original.message.includes(`原来的版本保留在备份 ${backup}，可用 node installer/install.mjs --rollback 撤销。`));
+  t.mock.restoreAll();
+});
+
+test('回退清理失败附加路径，其他目标与备份仍恢复和清理', t => {
+  const s = setup(t); install(s);
+  const before = new Map(createPlan(s.options).items.map(item => [item.target, snapshot(item.target)]));
+  const batches = fs.readdirSync(join(s.home, 'backups'));
+  const original = new Error('原始提交错误'), remove = mutableFs.rmSync;
+  let blocked, commits = 0;
+  t.mock.method(mutableFs, 'rmSync', (file, options) => {
+    if (file.includes('.dispatchdock-new-') && fs.existsSync(file) && (!blocked || file === blocked)) {
+      blocked = file; assert.equal(options.maxRetries, 8); assert.equal(options.retryDelay, 150);
+      throw Object.assign(new Error('模拟清理失败'), { code: 'EPERM' });
+    }
+    return remove(file, options);
+  });
+  assert.throws(() => executePlan(createPlan(s.options), { ...s.options, onCommit() { if (++commits === 2) throw original; } }), error => error === original && error.message.startsWith('原始提交错误') && error.message.includes(blocked));
+  for (const [target, content] of before) assert.deepEqual(snapshot(target), content);
+  assert.deepEqual(fs.readdirSync(join(s.home, 'backups')), batches);
+  const remaining = [...readTree(s.base).keys()].filter(name => /\.dispatchdock-(new|old)-[^/]+\/$/.test(name));
+  assert.equal(remaining.length, 1);
+  t.mock.restoreAll();
+});
+
+test('EACCES 不触发就地覆盖，原样抛错并清理', t => {
+  const s = setup(t); install(s); const before = snapshot(s.base);
+  blockRename(t, from => from === s.target(), 'EACCES');
+  assert.throws(() => install(s), error => error.code === 'EACCES');
+  assert.deepEqual(snapshot(s.base), before);
+});
+
+test('Windows 不共享删除权限的目录句柄实际触发受支持的改名错误', { skip: process.platform !== 'win32' }, t => {
+  const s = setup(t), target = join(s.base, '句柄测试');
+  fs.mkdirSync(target);
+  const probe = join(s.base, 'rename-probe.cjs');
+  write(probe, 'try { require("node:fs").renameSync(process.env.DISPATCH_TEST_LOCK, process.env.DISPATCH_TEST_LOCK + "-renamed"); console.log("renamed"); } catch (error) { console.log(error.code); }');
+  // 仅锁定隔离目录，实测当前 Node 对 Windows 共享冲突的错误码。
+  const script = `
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+public static class DirectoryLock {
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+  public static extern SafeFileHandle CreateFile(string name, uint access, uint share, IntPtr security, uint creation, uint flags, IntPtr template);
+}
+'@
+$handle = [DirectoryLock]::CreateFile($env:DISPATCH_TEST_LOCK, 2147483648, 3, [IntPtr]::Zero, 3, 0x02000000, [IntPtr]::Zero)
+if ($handle.IsInvalid) { throw '无法创建测试句柄' }
+try {
+  & $env:DISPATCH_TEST_NODE $env:DISPATCH_TEST_PROBE
+} finally { $handle.Dispose() }
+`;
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], {
+    env: { ...s.env, DISPATCH_TEST_LOCK: target, DISPATCH_TEST_NODE: process.execPath, DISPATCH_TEST_PROBE: probe }, encoding: 'utf8', windowsHide: true, shell: false, timeout: 15000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const code = result.stdout.trim();
+  t.diagnostic(`目录句柄冲突实测错误码：${code}`);
+  assert.ok(['EPERM', 'EBUSY'].includes(code), code);
+});
 
 test('首次安装可撤销和重做，卸载可恢复并再次撤销，每批记录缺失状态', t => {
   const s = setup(t), first = install(s);

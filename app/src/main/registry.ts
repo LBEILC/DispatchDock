@@ -141,6 +141,7 @@ export class Registry {
     private work?: Promise<void>;
     private ready = false;
     private closed = false;
+    private missingSince = new Map<string, number>();
     private mutations: Promise<unknown> = Promise.resolve();
     constructor(readonly home: string, readonly data: string, readonly platform: Platform, private changed: (tasks: Task[]) => void, private finished: (t: Task) => void, private error: (e: unknown) => void) { }
     get file() { return path.join(this.home, 'runs.jsonl'); }
@@ -175,7 +176,22 @@ export class Registry {
             return;
         const rows = await this.reader.read(this.file), ps = await this.platform.processes(rows.filter(t => t.status === 'run' && t.pid).map(t => t.pid));
         for (const t of rows) {
-            t.status = statusOf(t, ps);
+            const status = statusOf(t, ps);
+            if (t.status === 'run' && status === 'stop') {
+                const since = this.missingSince.get(t.id) ?? Date.now();
+                this.missingSince.set(t.id, since);
+                // 到达宽限期后再次读取，避免平台查询期间刚写入的终止记录被遗漏。
+                if (Date.now() - since >= 3000) {
+                    const latest = (await this.reader.read(this.file)).find(row => row.id === t.id);
+                    if (latest && latest.status !== 'run') {
+                        Object.assign(t, latest);
+                        this.missingSince.delete(t.id);
+                    } else t.status = 'stop';
+                } else t.status = 'run';
+            } else {
+                this.missingSince.delete(t.id);
+                t.status = status;
+            }
             if (t.status === 'stop' && !t.ended)
                 t.ended = this.tasks.find(x => x.id === t.id)?.ended ?? Date.now();
         }

@@ -18,6 +18,8 @@ export const c = {
     error: '操作没有完成，请重试', earlier: '加载更早的进展', unknownHost: '其他派活方',
     // 用户在本软件里停止的任务（signal 为 stopped-by-app）
     stopped: '你停止了这个任务', stoppedHelp: '工作区里没提交的改动还在。要继续，在派活方的会话里重新派发。', stoppedShort: '手动停止',
+    // 派活方用 --stop 停止的任务（signal 为 stopped-by-command），说明文字沿用 stoppedHelp
+    stoppedByCommand: '派活方停止了这个任务', stoppedByCommandShort: '派活方停止',
     managed: '托管', yes: '是', no: '否', goSettings: '去设置', managedOn: '托管已开启', managedOff: '托管未开启',
     imported: '导入的旧任务', planNow: '当前',
 };

@@ -27,3 +27,19 @@ test('停止核对后调用假的 kill，半行隔开、通知只在状态转换
 test('确认后身份变化时不 kill、不写 interrupted',async()=>{const {home}=await fixture();let calls=0,killed=0;const registry=new Registry(home,path.join(home,'monitor'),{processes:async()=>++calls<=2?[ps]:[{...ps,created:101000}],killTree:async()=>{killed++;},open:async()=>{}},()=>{},()=>{},()=>{});try{await registry.start();await assert.rejects(registry.stop('sample'),/任务状态已经变了/);assert.equal(killed,0);assert.ok(!(await readFile(registry.file,'utf8')).includes('interrupted'));}finally{await registry.close();}});
 test('导入旧任务只在本地存储；viewer 退出只删除自己的 pid',async()=>{const {home}=await fixture();const dir=path.join(home,'.codex-runs');await mkdir(dir);await writeFile(path.join(dir,'old.progress.log'),'=== Codex 开始：旧任务（角色：工程负责人）  2026/10/8 10:05:00 ===\n[10:06:00] 说：完成\n=== Codex 结束：exit=0，用时 1.0 分钟，汇报在 demo.md ===\n');const imported=await importTasks(home);assert.equal(imported[0].title,'旧任务');assert.equal(imported[0].status,'done');assert.equal(imported[0].imported,true);const registry=new Registry(home,path.join(home,'monitor'),{processes:async()=>[],killTree:async()=>assert.fail(),open:async()=>{}},()=>{},()=>{},()=>{});await registry.start();const original=await readFile(registry.file,'utf8');await registry.import(home);assert.equal(await readFile(registry.file,'utf8'),original);const viewer=JSON.parse(await readFile(path.join(home,'viewer.json'),'utf8'));assert.equal(viewer.suppressWatchWindow,true);assert.equal(viewer.acceptsManaged,true);await writeFile(path.join(home,'viewer.json'),JSON.stringify({pid:99999}));await registry.close();assert.equal(JSON.parse(await readFile(path.join(home,'viewer.json'),'utf8')).pid,99999);});
 test('无效日期与数值不进入渲染 DTO，持久化导入记录重新验证',async()=>{assert.equal(parseRegistry(lines(row({started:1e100}))).length,0);const parsed=parseRegistry(lines(row(),{v:1,event:'end',id:'sample',exit:0,minutes:'<img src=x>',at:'bad'}))[0];assert.equal(parsed.minutes,undefined);assert.equal(parsed.ended,undefined);assert.equal(parseEvent(JSON.stringify({v:1,seq:1,at:1e100,kind:'say',text:'bad'}),0),null);const {home,task}=await fixture();await writeFile(path.join(home,'monitor','tasks.json'),JSON.stringify({imports:[{...task,id:'import-safe',imported:true,status:'done',minutes:'<img src=x>'},{id:'invalid',imported:true,status:'done'}],hidden:[{},1]}));const registry=new Registry(home,path.join(home,'monitor'),{processes:async()=>[],killTree:async()=>assert.fail(),open:async()=>{}},()=>{},()=>{},()=>{});try{await registry.start();assert.ok(!registry.tasks.some(t=>t.id==='invalid'));assert.equal(registry.tasks.find(t=>t.id==='import-safe')?.minutes,undefined);}finally{await registry.close();}});
+
+test('进程消失先宽限三秒并重读命令停止记录，不提前通知',async()=>{
+  const {home}=await fixture();let present=true,finished=0;
+  const registry=new Registry(home,path.join(home,'monitor'),{processes:async()=>present?[ps]:[],killTree:async()=>{},open:async()=>{}},()=>{},()=>finished++,e=>{throw e;});
+  try {
+    await registry.start();present=false;await registry.refresh();assert.equal(registry.tasks[0].status,'run');assert.equal(finished,0);
+    await appendFile(registry.file,lines({v:1,event:'interrupted',id:'sample',signal:'stopped-by-command',at:Date.now()}));
+    await registry.refresh();assert.equal(registry.tasks[0].signal,'stopped-by-command');assert.equal(finished,1);
+  } finally {await registry.close();}
+});
+test('消失超过三秒仍无结束记录才判为中断',async()=>{
+  const {home}=await fixture();
+  const registry=new Registry(home,path.join(home,'monitor'),{processes:async()=>[],killTree:async()=>{},open:async()=>{}},()=>{},()=>{},e=>{throw e;});
+  try {await registry.start();assert.equal(registry.tasks[0].status,'run');await new Promise(r=>setTimeout(r,3100));await registry.refresh();assert.equal(registry.tasks[0].status,'stop');}
+  finally {await registry.close();}
+});

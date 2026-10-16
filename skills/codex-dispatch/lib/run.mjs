@@ -10,8 +10,14 @@ import { openWatch, shouldWatch, viewerTakesOver } from './watch.mjs';
 import { acceptsManaged, viewerApp, managedEnvironment, validRequest, existingPaths, handoff, fallbackMessage, managedMessage } from './managed.mjs';
 import { printCompletion } from './completion.mjs';
 import { waitForTask } from './wait.mjs';
+import { stopTask } from './stop.mjs';
+import { killProcessTree } from './process.mjs';
 
 export async function run({ adapter, scriptPath, args = process.argv.slice(2), env = process.env, root = process.cwd() }) {
+  if (args[0] === '--stop') {
+    if (args.length !== 2 || !args[1] || args[1].startsWith('--')) throw Error('用法：node codex-task.mjs --stop <记录名>');
+    return stopTask(homeDirectory(env), root, args[1]);
+  }
   if (args[0] === '--wait') {
     if (args.length > 2 || args[1]?.startsWith('--')) throw Error('用法：node codex-task.mjs --wait [记录名]');
     return waitForTask(homeDirectory(env), root, args[1]);
@@ -118,12 +124,19 @@ export async function run({ adapter, scriptPath, args = process.argv.slice(2), e
     child.stdin.on('error', error => {
       if (error.code !== 'EPIPE') emit({ kind: 'error', text: error.message });
     });
+    let stopping = false;
     const signals = ['SIGINT', 'SIGTERM', 'SIGBREAK', 'SIGHUP'];
     const handlers = signals.map(signal => {
-      const handler = () => {
-        appendFileSync(paths.progress, `\n=== 派发脚本收到 ${signal}，被外部中断 ===\n`);
-        registry({ event: 'interrupted', id, signal, at: Date.now() });
-        process.exit(1);
+      const handler = async () => {
+        if (stopping) return;
+        stopping = true;
+        try { if (child.pid) await killProcessTree(child.pid); }
+        catch { /* 结束失败仍记录中断并退出，平台函数有总时限。 */ }
+        finally {
+          try { appendFileSync(paths.progress, `\n=== 派发脚本收到 ${signal}，被外部中断 ===\n`); } catch { /* 不阻塞退出。 */ }
+          registry({ event: 'interrupted', id, signal, at: Date.now() });
+          process.exit(1);
+        }
       };
       process.on(signal, handler);
       return [signal, handler];
@@ -131,6 +144,7 @@ export async function run({ adapter, scriptPath, args = process.argv.slice(2), e
     child.stdin.end(command.stdin, 'utf8');
     // close 在 stdout/stderr 完全排空后触发，避免 exit 提前丢掉最后的汇报事件。
     child.on('close', code => {
+      if (stopping) return;
       for (const [signal, handler] of handlers) process.off(signal, handler);
       // 干活方启动即退出时，原因往往只在 stderr 里（例如 Codex 拒绝在非 git 目录运行），补成出错事件。
       if (!failed && code !== 0) {

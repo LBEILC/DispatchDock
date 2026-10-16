@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -22,7 +22,7 @@ async function until(fn, timeout = 10000) {
   while (Date.now() < deadline) { const result = fn(); if (result) return result; await delay(25); }
   throw Error('隔离测试等待超时');
 }
-async function fixture(t, { exit = 0, duration = 150, stderr = '' } = {}) {
+async function fixture(t, { exit = 0, duration = 150, stderr = '', tree = false } = {}) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatchdock-managed-'));
   const home = path.join(base, 'home'), repo = path.join(base, 'repo'), host = path.join(base, 'host');
   for (const dir of [home, repo, host]) fs.mkdirSync(dir);
@@ -30,11 +30,13 @@ async function fixture(t, { exit = 0, duration = 150, stderr = '' } = {}) {
     CLAUDE_CONFIG_DIR: host, CODEX_HOME: path.join(base, 'codex'), XDG_CONFIG_HOME: path.join(base, 'xdg'), CODEX_NO_WATCH: '1' };
   for (const key of ['CODEX_DRY_RUN','CODEX_MODEL','CODEX_EFFORT','CODEX_TIER','CODEX_SANDBOX','CODEX_DISPATCH_TEST_AGENT','NODE_OPTIONS','ELECTRON_RUN_AS_NODE']) delete env[key];
   const agent = path.join(base, 'fake-agent.cjs');
+  if (tree) fs.writeFileSync(path.join(base, 'descendant.cjs'), `require('node:fs').writeFileSync(require('node:path').join(__dirname,'descendant.json'),JSON.stringify({pid:process.pid}));setInterval(()=>{},1000);`);
   fs.writeFileSync(path.join(base, 'agent.json'), JSON.stringify({ exit, duration, stderr }));
   fs.writeFileSync(agent, `const fs=require('node:fs'),path=require('node:path');
 if(process.argv.includes('--version')){console.log('codex-cli fake-managed');process.exit(0);}
 let prompt='';process.stdin.setEncoding('utf8');process.stdin.on('data',s=>prompt+=s);process.stdin.on('end',()=>{
 const settings=JSON.parse(fs.readFileSync(path.join(__dirname,'agent.json'),'utf8'));
+${tree ? "require('node:child_process').spawn(process.execPath,[path.join(__dirname,'descendant.cjs')],{stdio:'ignore',windowsHide:true,shell:false});" : ''}
 fs.writeFileSync(path.join(__dirname,'echo.json'),JSON.stringify({pid:process.pid,args:process.argv.slice(2),prompt,home:process.env.CODEX_HOME,key:process.env.OPENAI_API_KEY}));
 console.log(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:'隔离任务正在执行'}}));
 setTimeout(()=>{fs.writeFileSync(process.argv[process.argv.indexOf('-o')+1],'隔离汇报');if(settings.stderr)process.stderr.write(settings.stderr+'\\n');process.exitCode=settings.exit;},settings.duration);
@@ -168,7 +170,7 @@ for (const [label, app, expected] of [
   const result = await waiter.done;
   assert.equal(result.code, 0, result.stderr);
   const message = accepted
-    ? `托管：任务已交给 ${expected}，关掉当前会话也不会中断。要停止，在 ${expected} 里停。`
+    ? `托管：任务已交给 ${expected}，关掉当前会话也不会中断。`
     : `托管：${expected} 没有接手（隔离测试拒绝），改为直接运行`;
   assert.deepEqual(result.stdout.split(/\r?\n/).filter(line => line.startsWith('托管：')), [message]);
   const start = rows(f.home)[0];
@@ -354,4 +356,42 @@ test('Windows 实测：关闭软件认领进程，托管任务仍正常完成', 
   assert.equal(alive(executor.pid),true);assert.equal(alive(agent.agentPid),true);
   assert.equal((await waiter.done).code,0);assert.equal(rows(f.home).at(-1).exit,0);
   t.diagnostic('向独立假监控进程发送 close，关闭认领服务并正常退出：执行者与假 agent 存活，等待者 exit=0，唯一 end.exit=0。');
+});
+
+for (const managed of [false, true]) test(`停止命令结束多层假进程，托管=${managed}`, async t => {
+  const f = await fixture(t, { duration: 60000, tree: true });
+  if (managed) await f.service();
+  else fs.writeFileSync(f.configFile, JSON.stringify({ ...json(f.configFile), managed: false }));
+  const name = '停止 中文 任务';
+  const waiter = f.launch(f.script, ['隔离任务', '--name', name]);
+  await until(() => fs.existsSync(path.join(f.base, 'descendant.json')));
+  const [start, spawned] = rows(f.home), descendant = json(path.join(f.base, 'descendant.json')).pid;
+  t.after(() => { for (const pid of [spawned.agentPid, descendant]) if (alive(pid)) process.kill(pid); });
+  const result = await f.launch(f.script, ['--stop', name]).done;
+  assert.equal(result.code, 0, result.stderr + result.stdout);
+  assert.equal(result.stdout.trim(), `停止：${name} 已停止，工作区里没提交的改动还在`);
+  for (const pid of [start.pid, spawned.agentPid, descendant]) assert.equal(alive(pid), false, `假进程 ${pid} 已退出`);
+  const finished = await waiter.done;
+  if (managed) assert.equal(finished.code, 1);
+  assert.deepEqual(rows(f.home).map(r => r.event), ['start','spawned','interrupted']);
+  assert.equal(rows(f.home).at(-1).signal, 'stopped-by-command');
+  const again = await f.launch(f.script, ['--stop', name]).done;
+  assert.equal(again.code, 0); assert.equal(again.stdout.trim(), `停止：${name}（已经结束）`);
+});
+
+for (const signal of ['SIGINT','SIGTERM','SIGBREAK','SIGHUP']) test(`信号 ${signal} 结束假 agent 及子孙进程`, async t => {
+  const f = await fixture(t, { duration: 60000, tree: true });
+  fs.writeFileSync(f.configFile, JSON.stringify({ ...json(f.configFile), managed: false }));
+  // Windows 不支持从另一进程投递这些 POSIX 信号，用 IPC 在派发进程内触发同一处理器。
+  const wrapper = path.join(f.base, 'signal-entry.mjs');
+  fs.writeFileSync(wrapper, `process.on('message',s=>process.emit(s));await import(${JSON.stringify(pathToFileURL(f.script).href)});`);
+  const child = f.launch(wrapper, ['隔离任务']);
+  await until(() => fs.existsSync(path.join(f.base, 'descendant.json')));
+  const spawned = rows(f.home).find(r => r.event === 'spawned'), descendant = json(path.join(f.base, 'descendant.json')).pid;
+  t.after(() => { for (const pid of [spawned.agentPid, descendant]) if (alive(pid)) process.kill(pid); });
+  child.send(signal);
+  assert.equal((await child.done).code, 1);
+  assert.equal(alive(spawned.agentPid), false); assert.equal(alive(descendant), false);
+  assert.deepEqual(rows(f.home).map(r => r.event), ['start','spawned','interrupted']);
+  assert.equal(rows(f.home).at(-1).signal, signal);
 });

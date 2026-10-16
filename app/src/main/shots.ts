@@ -116,6 +116,11 @@ export async function capture(win: BrowserWindow, registry: Registry, out: strin
     await save('stopped-by-app');
     await check('手动停止使用专用列表说明和横幅', 'document.querySelector("[data-task=t10] .tm").textContent.includes("手动停止") && document.querySelector(".banner .rt b").textContent==="你停止了这个任务" && document.querySelector(".banner .rt span").textContent==="工作区里没提交的改动还在。要继续，在派活方的会话里重新派发。"');
     await check('没有计划时不显示计划框和计划条', '!document.querySelector(".plan") && document.querySelector("[data-plan-top]").hidden');
+    await appendFile(registry.file, '\n' + JSON.stringify({ v: 1, event: 'interrupted', id: 't10', signal: 'stopped-by-command', at: Date.now() }) + '\n');
+    await registry.refresh();
+    await wait('document.querySelector(".banner .rt b")?.textContent==="派活方停止了这个任务"');
+    await check('命令停止使用专用列表说明和横幅且不显示去设置', 'document.querySelector("[data-task=t10] .tm").textContent.includes("派活方停止") && document.querySelector(".banner .rt span").textContent==="工作区里没提交的改动还在。要继续，在派活方的会话里重新派发。" && !document.querySelector(".banner [data-managed-settings]")');
+    await save('stopped-by-command');
     win.setContentSize(1160, 720);
     await click('[data-task=t1]');
     await evaluate('(()=>{const box=document.querySelector(".dbody > .scroll");box.scrollTop=0;box.dispatchEvent(new Event("scroll"));})()');
