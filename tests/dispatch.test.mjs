@@ -67,7 +67,7 @@ test('端到端：参数完整、清单兼容、事件顺序、原始日志和�
   assert.equal(fs.readFileSync(start.report, 'utf8'), 'OK\n');
   const echo = JSON.parse(fs.readFileSync(s.env.FAKE_ECHO, 'utf8'));
   assert.deepEqual(echo.args, ['exec', '--json', '-C', s.root, '-s', 'workspace-write', '-o', start.report, '-']);
-  assert.equal(echo.prompt, '任务：\n只回复 OK');
+  assert.equal(echo.prompt, '执行中不要弹出让用户选择或确认的提示。小的不一致（例如工具、浏览器的名字和任务说明写法不同，但显然是同一个东西）自己判断后继续，在汇报里写明；只有真正必须用户决定的事（付款、对外发布、登录、验证码、改账号设置等）才停下：直接结束本轮，在汇报里说明原因，不要弹窗等用户选。\n任务：\n只回复 OK');
   const events = jsonl(start.events);
   events.forEach((e, n) => { assert.equal(e.seq, n + 1); assert.equal(e.v, 1); assert.ok(e.at >= start.started); });
   assert.deepEqual(new Set(events.map(e => e.kind)), new Set(['say', 'think', 'cmd', 'file', 'plan', 'tool', 'turn', 'error', 'text']));
@@ -180,7 +180,7 @@ test('角色、共同规则、说明文件、补充说明的指令拼装保持�
   fs.writeFileSync(path.join(s.root, '任务 说明.md'), '任务');
   const result = taskDetails(s.root, parseArgs(['任务 说明.md', '补充内容', '--role', 'engineering']));
   assert.equal(result.name, '任务 说明');
-  assert.equal(result.prompt, '你在本项目中的角色是「工程负责人」。\n请先阅读仓库根目录的 AGENTS.md（共同规则）。\n再阅读你的角色文档 docs/roles/engineering.md，严格遵守其中的职责、硬规则、完成标准和汇报格式。\n然后完成任务说明 任务 说明.md 中的全部内容，按要求验证、提交，最后给出汇报。\n补充内容');
+  assert.equal(result.prompt, '你在本项目中的角色是「工程负责人」。\n请先阅读仓库根目录的 AGENTS.md（共同规则）。\n执行中不要弹出让用户选择或确认的提示。小的不一致（例如工具、浏览器的名字和任务说明写法不同，但显然是同一个东西）自己判断后继续，在汇报里写明；只有真正必须用户决定的事（付款、对外发布、登录、验证码、改账号设置等）才停下：直接结束本轮，在汇报里说明原因，不要弹窗等用户选。\n再阅读你的角色文档 docs/roles/engineering.md，严格遵守其中的职责、硬规则、完成标准和汇报格式。\n然后完成任务说明 任务 说明.md 中的全部内容，按要求验证、提交，最后给出汇报。\n补充内容');
   assert.throws(() => taskDetails(s.root, parseArgs(['task', '--role', 'missing'])));
   for (const name of ['../outside', 'CON', 'bad/name', 'trailing.']) assert.throws(() => taskDetails(s.root, parseArgs(['task', '--name', name])));
 });

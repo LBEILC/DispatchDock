@@ -83,7 +83,7 @@ test('托管完整流程：退出码、唯一清单、执行者 PID、预计算�
   const [start, spawned, end] = records;
   assert.equal(start.managed, true); assert.notEqual(start.pid, waiter.pid); assert.equal(end.exit, 7);
   assert.equal(start.model, 'explicit-model'); assert.equal(start.effort, 'high');
-  const echo = json(path.join(f.base, 'echo.json')); assert.equal(spawned.agentPid, echo.pid); assert.equal(echo.prompt, '任务：\n隔离任务\n补充说明'); assert.equal(echo.home, f.env.CODEX_HOME);
+  const echo = json(path.join(f.base, 'echo.json')); assert.equal(spawned.agentPid, echo.pid); assert.equal(echo.prompt, '执行中不要弹出让用户选择或确认的提示。小的不一致（例如工具、浏览器的名字和任务说明写法不同，但显然是同一个东西）自己判断后继续，在汇报里写明；只有真正必须用户决定的事（付款、对外发布、登录、验证码、改账号设置等）才停下：直接结束本轮，在汇报里说明原因，不要弹窗等用户选。\n任务：\n隔离任务\n补充说明'); assert.equal(echo.home, f.env.CODEX_HOME);
   const progress = fs.readFileSync(start.progress, 'utf8'); assert.equal((progress.match(/托管：任务已交给/g) || []).length, 1); assert.match(progress.trimEnd(), /=== Codex 结束：exit=7.*===$/);
   await until(() => fs.readdirSync(path.join(f.home, 'managed')).length === 0); assert.deepEqual(errors, []);
 });
