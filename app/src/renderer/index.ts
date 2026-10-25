@@ -4,6 +4,7 @@ import { esc, markdown } from '../shared/markdown';
 import { icon, menu, confirmStop, tooltips, notice } from './ui';
 import { installScrollMaterial } from './floatingThumb';
 import { Timeline } from './timeline';
+import { selectTasks, TaskListView, type TaskFilter, type ListEntry } from './taskList';
 import { PreferencesView } from './preferences';
 import brandSVG from '../../design/icons/mark.svg';
 const root = document.querySelector<HTMLElement>('#app')!;
@@ -12,9 +13,13 @@ const marks = { run: ['run', 'loader-4-line'], done: ['ok', 'checkbox-circle-lin
 const mark = (s: Task['status']) => `<span class="mk ${marks[s][0]}">${icon(marks[s][1])}</span>`;
 const project = (t: Task) => t.repo.split(/[\\/]/).filter(Boolean).at(-1)!;
 const host = (t: Task) => t.dispatcher?.host === 'claude-code' ? 'Claude Code' : t.dispatcher?.host === 'devin' ? 'Devin' : c.unknownHost;
-const clock = (n: number) => new Date(n).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+const timeFormat = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' });
+const dayFormat = new Intl.DateTimeFormat('zh-CN');
+const stampFormat = new Intl.DateTimeFormat('en-CA', { month: '2-digit', day: '2-digit' });
+const clock = (n: number) => timeFormat.format(n);
 const elapsed = (t: Task) => { const seconds = Math.max(0, Math.floor((Date.now() - t.started) / 1000)); return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`; };
-let state: Snapshot = { tasks: [], theme: 'dark', version: '0.1.0' }, page = 'tasks', filter = 'all', repo = '', selected = '', tab = 'flow', think = false, timeline: Timeline | undefined, report = '', generation = 0, loading = false, queued = false, detailSignature = '';
+let state: Snapshot = { tasks: [], theme: 'dark', version: '0.1.0' }, page = 'tasks', filter: TaskFilter = 'all', repo = '', selected = '', tab = 'flow', think = false, timeline: Timeline | undefined, report = '', generation = 0, loading = false, queued = false, detailSignature = '';
+let query = '', taskList: TaskListView | undefined;
 const preferences = new PreferencesView(() => { nav(); pageView(); }, () => { nav(); if(page==='tasks'&&!preferences.wizard) header(); });
 const current = () => state.tasks.find(t => t.id === selected);
 const headerKey = (t: Task) => JSON.stringify([t.id, t.title, t.status, t.role, t.started, t.ended, t.minutes, t.exit, t.signal, t.commit, t.dispatcher?.host,t.managed,preferences.settings?.managed]);
@@ -25,6 +30,7 @@ function pageView() {
     const content = root.querySelector<HTMLElement>('.content')!;
     generation++;
     timeline = undefined;
+    taskList = undefined;
     loading = false;
     content.onclick = null;
     preferences.unmount();
@@ -32,16 +38,22 @@ function pageView() {
         preferences.mount(content as HTMLElement, page, state.version);
         return;
     }
-    content.innerHTML = '<div class="page-h"></div><div class="split"><div class="edge"><div class="tlist scroll"></div></div><div class="detail"></div></div>';
+    content.innerHTML = `<div class="page-h"></div><div class="split"><div class="edge"><div class="task-search"><input class="inp" type="search" data-task-search aria-label="${c.searchTasks}" placeholder="${c.searchTasks}" value="${esc(query)}" autocomplete="off" spellcheck="false"></div><div class="tlist scroll"></div></div><div class="detail"></div></div>`;
+    taskList = new TaskListView(root.querySelector<HTMLElement>('.tlist')!);
     list();
     detail();
 }
 function list() {
     if (page !== 'tasks' || preferences.wizard)
         return;
-    const count = (key: string) => state.tasks.filter(t => (!repo || t.repo === repo) && (key === 'all' || key === 'run' && t.status === 'run' || key === 'issues' && ['fail', 'stop'].includes(t.status))).length;
-    root.querySelector('.page-h')!.innerHTML = `<h1>${c.tasks}</h1><div class="segm">${[['all', c.all], ['run', c.status.run], ['issues', c.issues]].map(([key, label]) => `<button data-filter="${key}" class="${filter === key ? 'on' : ''}">${label} <span class="n">${count(key)}</span></button>`).join('')}</div><button class="sel" data-project aria-haspopup="listbox" aria-expanded="false"><span class="ph">${esc(repo ? repo.split(/[\\/]/).at(-1) : c.projects)}</span>${icon('arrow-down-s-line')}</button><span class="sp"></span><button class="btn icon quiet" data-import data-tip="${c.import}" aria-label="${c.import}">${icon('folder-add-line')}</button>`;
-    const tasks = state.tasks.filter(t => (!repo || repo === t.repo) && (filter === 'all' || filter === 'run' && t.status === 'run' || filter === 'issues' && ['fail', 'stop'].includes(t.status)));
+    const { tasks, counts } = selectTasks(state.tasks, repo, filter, query);
+    const pageHeader = root.querySelector('.page-h')!;
+    if (!pageHeader.children.length) pageHeader.innerHTML = `<h1>${c.tasks}</h1><div class="segm">${[['all', c.all], ['run', c.status.run], ['issues', c.issues]].map(([key, label]) => `<button data-filter="${key}" class="${filter === key ? 'on' : ''}">${label} <span class="n">0</span></button>`).join('')}</div><button class="sel" data-project aria-haspopup="listbox" aria-expanded="false"><span class="ph">${esc(repo ? repo.split(/[\\/]/).at(-1) : c.projects)}</span>${icon('arrow-down-s-line')}</button><span class="sp"></span><button class="btn icon quiet" data-import data-tip="${c.import}" aria-label="${c.import}">${icon('folder-add-line')}</button>`;
+    for (const button of pageHeader.querySelectorAll<HTMLElement>('[data-filter]')) {
+        button.classList.toggle('on', button.dataset.filter === filter);
+        button.querySelector('.n')!.textContent = String(counts[button.dataset.filter as TaskFilter]);
+    }
+    pageHeader.querySelector('.ph')!.textContent = repo ? project({ repo } as Task) : c.projects;
     if (selected && !tasks.some(t => t.id === selected)) {
         selected = '';
         detailSignature = '';
@@ -50,12 +62,30 @@ function list() {
     const groups = new Map<string, Task[]>();
     const now = new Date(), today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(), yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).getTime();
     for (const t of [...tasks].sort((a, b) => Number(b.status === 'run') - Number(a.status === 'run') || b.started - a.started)) {
-        const day = t.status === 'run' ? c.status.run : t.started >= today ? c.today : t.started >= yesterday ? c.yesterday : new Date(t.started).toLocaleDateString('zh-CN');
-        groups.set(day, [...(groups.get(day) ?? []), t]);
+        const day = t.status === 'run' ? c.status.run : t.started >= today ? c.today : t.started >= yesterday ? c.yesterday : dayFormat.format(t.started);
+        let rows = groups.get(day);
+        if (!rows) groups.set(day, rows = []);
+        rows.push(t);
     }
-    const box = root.querySelector<HTMLElement>('.tlist')!, scroll = box.scrollTop;
-    box.innerHTML = tasks.length ? [...groups].map(([day, rows]) => `<div class="tgroup">${day}<span class="mono">${day === c.status.run ? rows.length : new Date(rows[0].started).toLocaleDateString('en-CA', { month: '2-digit', day: '2-digit' })}</span></div>${rows.map(t => { const tail = t.imported ? c.imported : t.status === 'run' ? t.last : t.status === 'fail' ? `exit=${t.exit}` : t.status === 'stop' ? (t.signal === 'stopped-by-app' ? c.stoppedShort : t.signal === 'stopped-by-command' ? c.stoppedByCommandShort : c.closed) : t.commit ?? (t.sandbox === 'read-only' ? c.readonly : ''); return `<button class="trow is-${t.status === 'run' ? 'running' : t.status} ${selected === t.id ? 'on' : ''}" data-task="${esc(t.id)}">${mark(t.status)}<span class="tm"><b>${esc(t.title)}</b><span class="${t.status === 'run' ? 'live' : ''}">${esc(project(t))}${tail ? ' · ' + esc(tail) : ''}</span></span><span class="ts"><span class="mono" ${t.status === 'run' ? `data-elapsed="${esc(t.id)}"` : ''}>${t.status === 'run' ? elapsed(t) : clock(t.started)}</span></span></button>`; }).join('')}`).join('') : `<div class="empty">${icon('stack-line')}<b>${c.empty}</b><p>${c.emptyHelp}</p></div>`;
-    box.scrollTop = scroll;
+    const entries: ListEntry[] = [];
+    for (const [day, rows] of groups) {
+        const stamp = day === c.status.run ? String(rows.length) : stampFormat.format(rows[0].started);
+        entries.push({ key: 'group:' + day, tag: 'div', signature: stamp, render(node) {
+            node.className = 'tgroup';
+            node.innerHTML = `${esc(day)}<span class="mono">${stamp}</span>`;
+        } });
+        for (const t of rows) entries.push({ key: 'task:' + t.id, tag: 'button', signature: JSON.stringify([t, selected === t.id]), render(node) {
+            const tail = t.imported ? c.imported : t.status === 'run' ? t.last : t.status === 'fail' ? `exit=${t.exit}` : t.status === 'stop' ? (t.signal === 'stopped-by-app' ? c.stoppedShort : t.signal === 'stopped-by-command' ? c.stoppedByCommandShort : c.closed) : t.commit ?? (t.sandbox === 'read-only' ? c.readonly : '');
+            node.className = `trow is-${t.status === 'run' ? 'running' : t.status}${selected === t.id ? ' on' : ''}`;
+            node.dataset.task = t.id;
+            node.innerHTML = `${mark(t.status)}<span class="tm"><b>${esc(t.title)}</b><span class="${t.status === 'run' ? 'live' : ''}">${esc(project(t))}${tail ? ' · ' + esc(tail) : ''}</span></span><span class="ts"><span class="mono" ${t.status === 'run' ? `data-elapsed="${esc(t.id)}"` : ''}>${t.status === 'run' ? elapsed(t) : clock(t.started)}</span></span>`;
+        } });
+    }
+    if (!tasks.length) entries.push({ key: 'empty', tag: 'div', signature: String(state.tasks.length > 0), render(node) {
+        node.className = 'empty';
+        node.innerHTML = `${icon('stack-line')}<b>${state.tasks.length ? c.noMatches : c.empty}</b><p>${state.tasks.length ? c.noMatchesHelp : c.emptyHelp}</p>`;
+    } });
+    taskList!.update(entries);
 }
 function detail() {
     const box = root.querySelector<HTMLElement>('.detail');
@@ -222,6 +252,24 @@ async function refreshDetail(before = false) {
         }
     }
 }
+root.addEventListener('input', (event) => {
+    const input = event.target as HTMLInputElement;
+    if (!input.matches('[data-task-search]') || (event as InputEvent).isComposing) return;
+    query = input.value;
+    list();
+    root.querySelector<HTMLElement>('.tlist')!.scrollTop = 0;
+});
+root.addEventListener('compositionend', (event) => {
+    if ((event.target as Element).matches('[data-task-search]')) event.target!.dispatchEvent(new Event('input', { bubbles: true }));
+});
+root.addEventListener('keydown', (event) => {
+    const input = event.target as HTMLInputElement;
+    if (input.matches('[data-task-search]') && event.key === 'Escape' && !event.isComposing) {
+        event.preventDefault();
+        input.value = '';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+});
 root.addEventListener('click', async (e) => {
     const b = (e.target as Element).closest<HTMLElement>('button,a');
     if (!b)
@@ -239,7 +287,7 @@ root.addEventListener('click', async (e) => {
         pageView();
     }
     else if (d.filter) {
-        filter = d.filter;
+        filter = d.filter as TaskFilter;
         list();
     }
     else if (b.hasAttribute('data-project'))
@@ -302,6 +350,7 @@ function accept(s: Snapshot) { const old = JSON.stringify(state.tasks); state = 
     selected = s.select;
     filter = 'all';
     repo = '';
+    query = '';
     page = 'tasks';
     tab = current()?.status === 'done' ? 'report' : 'flow';
     nav();

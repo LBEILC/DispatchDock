@@ -59,6 +59,22 @@ export async function capture(win: BrowserWindow, registry: Registry, out: strin
     const harness = {evaluate,wait,check,click,save};
     await captureWizard(harness);
     await wait('!!document.querySelector("[data-task=t1]")');
+    const searchTitle = registry.tasks.find(task => task.id === 't3')!.title;
+    await evaluate(`(() => { const input=document.querySelector('[data-task-search]'); input.value=${JSON.stringify(searchTitle)}; input.dispatchEvent(new Event('input',{bubbles:true})); input.focus(); input.setSelectionRange(1,2); })()`);
+    await check('任务搜索通过真实快照筛选', 'document.querySelectorAll(".trow").length===1 && document.querySelector(".trow").dataset.task==="t3"');
+    const progressFile = registry.tasks.find(task => task.id === 't1')!.progress;
+    const originalProgress = await readFile(progressFile);
+    try {
+        await appendFile(progressFile, '\n[15:40:00] 说：搜索验收的新进展\n');
+        await registry.refresh();
+        await pause();
+        await check('后台 IPC 更新不打断搜索输入', `(() => { const input=document.querySelector('[data-task-search]'); return document.activeElement===input && input.value===${JSON.stringify(searchTitle)} && input.selectionStart===1 && input.selectionEnd===2 && document.querySelectorAll('.trow').length===1; })()`);
+    } finally {
+        await writeFile(progressFile, originalProgress);
+        await registry.refresh();
+    }
+    await evaluate(`document.querySelector('[data-task-search]').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));`);
+    await wait('!!document.querySelector("[data-task=t1]")');
     // 当前 Electron 提供此诊断入口但未导出类型，限定在验收工具中使用。
     const contents = win.webContents as typeof win.webContents & {
         getLastWebPreferences(): Electron.WebPreferences;

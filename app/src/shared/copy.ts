@@ -3,6 +3,7 @@ export const c = {
     app: 'DispatchDock', tasks: '任务', connect: '连接', settings: '设置', about: '关于', placeholder: '【待 004 实现】', protocol: '文件协议 v1',
     status: { run: '进行中', done: '已完成', fail: '失败', stop: '已中断' },
     all: '全部', issues: '失败或中断', projects: '全部项目', import: '导入旧任务', today: '今天', yesterday: '昨天',
+    searchTasks: '搜索任务、记录名或项目路径', noMatches: '没有匹配的任务', noMatchesHelp: '试试其他关键词，或调整项目和状态筛选。',
     running: (n: number) => n ? `${n} 个任务进行中` : '没有进行中的任务',
     empty: '还没有派发过任务', emptyHelp: '在 Claude Code 或 Devin 里让它"交给 Codex 做……"，派出的任务会出现在这里。',
     select: '选择一个任务', emptyDetail: '这里会显示任务的进展和汇报', detailHelp: '进展、汇报、改动的文件和派发参数都在这里看。',
