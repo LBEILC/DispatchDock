@@ -107,6 +107,8 @@ body.dragging, body.dragging * { user-select: none !important; }
 /* ---------- 任务页 ---------- */
 .split { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: var(--list-w) minmax(0, 1fr); }
 .split > .edge { border-right: 1px solid var(--divider); }
+.task-search { flex: 0 0 auto; padding: var(--sp-2) var(--sp-4) var(--sp-2) var(--sp-8); }
+.task-search .inp { width: 100%; min-width: 0; }
 .tlist { padding: 0 8px 16px 22px; }
 .win.min { --list-w: 288px; }
 .tgroup { display: flex; align-items: center; gap: 6px; height: 32px; padding: 8px 10px 0; color: var(--text-3); font-size: var(--fs-small); }

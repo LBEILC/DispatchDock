@@ -41,6 +41,7 @@ v0.1 supports:
 | ![Report tab, with the TODO(design) and inference sections highlighted](docs/images/report-light.png) | ![Connections page, showing installed skill versions per dispatcher and Codex status](docs/images/connect-dark.png) |
 
 - **Tasks**: running tasks stay on top with their latest step and elapsed time. The detail view shows the plan, a progress timeline (expand any command to see its output), the report, changed files and dispatch parameters. You get a system notification when a task ends.
+  Search by task title, record name or project path. Space-separated terms must all match and can be combined with project and status filters. Press Esc in the search field to clear it.
 - **Connections**: detects which dispatchers are installed, and installs or updates the skills in one click. It backs up first and can roll back. Skills you have modified yourself are never replaced unless you say so.
 - **Settings**: default model, reasoning effort, service tier and sandbox for dispatched work. Leave them unset to follow Codex's own config.
 - **Managed mode**: when on, DispatchDock starts the dispatched tasks itself. Closing the Claude Code or Devin session, or even closing DispatchDock, does not stop them.
@@ -116,6 +117,7 @@ npm install
 npm run fonts      # fetch the MiSans font from its official page (not checked in)
 npm run demo       # start with demo data, never touches your real tasks
 npm run verify     # tests and type checks
+npm run verify:task-list # synthetic task-list checks, screenshots and performance samples
 npm run dist       # build the installer
 ```
 

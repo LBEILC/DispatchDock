@@ -8,6 +8,7 @@
   "type": "module",
   "scripts": {
     "verify": "tsc --noEmit && node tools/verify-monitor.mjs && node --test",
+    "verify:task-list": "npm run build && electron tools/verify-task-list.mjs",
     "build": "node tools/build.mjs",
     "start": "npm run build && electron .",
     "shots": "npm run build && node tools/shots.mjs",

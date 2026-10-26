@@ -8,8 +8,33 @@ import { dispatchMatches } from '../app/src/main/platform';
 import { parseEvent,readEvents,PAGE_BYTES } from '../app/src/main/events';
 import { commitFrom,markdown } from '../app/src/shared/markdown';
 import { combine } from '../app/src/renderer/timeline';
+import { selectTasks } from '../app/src/renderer/taskList';
 const row=(extra={})=>({v:1,event:'start',id:'sample',repo:path.resolve('/demo/project'),name:'task',title:'演示',spec:null,role:null,pid:42,started:100000,progress:path.resolve('/demo/project/task.progress.log'),report:path.resolve('/demo/project/task.md'),model:null,effort:null,tier:null,...extra});
 const lines=(...rows:unknown[])=>rows.map(r=>JSON.stringify(r)).join('\n')+'\n';
+
+test('任务搜索组合关键词、项目与状态，计数随搜索变化但不随状态筛选变化', () => {
+    const base = parseRegistry(lines(row()))[0];
+    const tasks = [
+        { ...base, id: 'a', title: '修复登录', name: 'AUTH-123', repo: 'D:\\Projects\\中文', status: 'run' as const },
+        { ...base, id: 'b', title: '登录测试', name: 'auth-124', repo: 'D:\\Projects\\中文', status: 'fail' as const },
+        { ...base, id: 'c', title: '登录测试', name: 'auth-125', repo: 'D:\\Other', status: 'done' as const },
+    ];
+    const result = selectTasks(tasks, 'D:\\Projects\\中文', 'issues', '  登录 AUTH  ');
+    assert.deepEqual(result.tasks.map(t => t.id), ['b']);
+    assert.deepEqual(result.counts, { all: 2, run: 1, issues: 1 });
+    assert.deepEqual(selectTasks(tasks, '', 'all', 'd:/projects/中文').tasks.map(t => t.id), ['a', 'b']);
+    assert.equal(selectTasks(tasks, '', 'all', '   ').tasks.length, 3);
+    assert.equal(selectTasks(tasks, '', 'all', '不存在').tasks.length, 0);
+    assert.equal(selectTasks(tasks, '', 'run', 'AUTH-123').tasks[0], tasks[0]);
+});
+
+test('搜索按字面匹配并归一化 Unicode，不执行正则也不拼接字段制造命中', () => {
+    const base = parseRegistry(lines(row()))[0];
+    const tasks = [{ ...base, title: 'Café [登录]', name: 'record', repo: '/demo' }];
+    assert.equal(selectTasks(tasks, '', 'all', 'CAFE\u0301 [登录]').tasks.length, 1);
+    assert.equal(selectTasks(tasks, '', 'all', '.*').tasks.length, 0);
+    assert.equal(selectTasks(tasks, '', 'all', ']record').tasks.length, 0);
+});
 const ps={pid:42,name:'node.exe',command:'node "C:\\demo\\codex-task.mjs"',created:99000};
 const fixture=async()=>{const home=await mkdtemp(path.join(os.tmpdir(),'dispatchdock-test-'));await mkdir(path.join(home,'monitor'));const entry=row({repo:home,progress:path.join(home,'task.progress.log'),report:path.join(home,'task.md'),events:path.join(home,'task.events.jsonl')});await writeFile(path.join(home,'runs.jsonl'),lines(entry));return {home,entry,task:parseRegistry(lines(entry))[0]};};
 test('清单合并、半行、坏行、未知字段，end 始终优先于 interrupted',()=>{
