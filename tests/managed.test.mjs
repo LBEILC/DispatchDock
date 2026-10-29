@@ -11,6 +11,7 @@ import { createPlan, executePlan } from '../installer/lib/install.mjs';
 import { createManaged } from '../app/src/main/managed.mjs';
 import { handoff, terminalReader, managedEnvironment, validRequest, viewerApp, managedMessage } from '../skills/codex-dispatch/lib/managed.mjs';
 import { registryWriter } from '../skills/codex-dispatch/lib/records.mjs';
+import { killProcessTree } from '../skills/codex-dispatch/lib/process.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const execute = promisify(execFile);
@@ -129,6 +130,7 @@ test('认领后执行者启动失败写 rejected，等待者立即回退且只�
   const before = Date.now();
   await f.service();
   const rejected = requestFile.replace('.request.json', '.rejected.json');
+  await until(() => fs.existsSync(rejected) && typeof json(rejected).reason === 'string');
   assert.match(json(rejected).reason, /启动 Codex 失败/);
   const result = await waiter.done;
   assert.equal(result.code, 0, result.stderr); assert.match(result.stdout, /没有接手（启动 Codex 失败/);
@@ -333,7 +335,7 @@ test('请求校验、环境白名单、完整行读取和启动清理', async t 
   fs.writeFileSync(file,'{"v":1,"event":"end","id":"half","exit":0}');assert.equal(read(),null);fs.appendFileSync(file,'\n');assert.equal(read().exit,0);
 });
 
-test('Windows 实测：终止假派活方整棵进程树，执行者和假 agent 继续到 end', { skip:process.platform!=='win32' }, async t => {
+test('终止假派活方整棵进程树，执行者和假 agent 继续到 end', async t => {
   const f=await fixture(t,{duration:2500});await f.service();
   const hostFile=path.join(f.base,'fake-host.mjs');
   fs.writeFileSync(hostFile,`import {spawn} from 'node:child_process';const child=spawn(process.execPath,[${JSON.stringify(f.script)},'隔离任务'],{stdio:'inherit',windowsHide:true,shell:false});child.on('close',code=>process.exit(code));`);
@@ -341,13 +343,13 @@ test('Windows 实测：终止假派活方整棵进程树，执行者和假 agent
   const started=await until(()=>rows(f.home).find(r=>r.event==='spawned'));
   await until(()=>fs.existsSync(path.join(f.base,'echo.json')));
   const executor=rows(f.home)[0];
-  await execute('taskkill.exe',['/PID',String(host.pid),'/T','/F'],{windowsHide:true});
+  await killProcessTree(host.pid);
   assert.equal(alive(host.pid),false);assert.equal(alive(executor.pid),true);assert.equal(alive(started.agentPid),true);
   const end=await until(()=>rows(f.home).find(r=>r.event==='end'));assert.equal(end.exit,0);
-  t.diagnostic('taskkill.exe /PID <本测试假派活方 PID> /T /F：派活方与等待者退出；执行者、假 agent 存活；唯一 end.exit=0。');
+  t.diagnostic('仅结束本测试假派活方的进程树：派活方与等待者退出；执行者、假 agent 存活；唯一 end.exit=0。');
 });
 
-test('Windows 实测：关闭软件认领进程，托管任务仍正常完成', { skip:process.platform!=='win32' }, async t => {
+test('关闭软件认领进程，托管任务仍正常完成', async t => {
   const f=await fixture(t,{duration:1800}),monitorFile=path.join(f.base,'fake-monitor.mjs');
   fs.writeFileSync(monitorFile,`import {createManaged} from ${JSON.stringify(new URL('../app/src/main/managed.mjs',import.meta.url).href)};import fs from 'node:fs';const service=await createManaged(${JSON.stringify(root)});service.start();fs.writeFileSync(${JSON.stringify(path.join(f.home,'viewer.json'))},JSON.stringify({pid:process.pid,acceptsManaged:true,suppressWatchWindow:true}));process.send('ready');process.on('message',()=>{service.close();fs.unlinkSync(${JSON.stringify(path.join(f.home,'viewer.json'))});process.disconnect();});`);
   const monitor=f.launch(monitorFile,[]);await new Promise(resolve=>monitor.once('message',resolve));

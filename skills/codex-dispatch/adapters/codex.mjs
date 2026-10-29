@@ -1,11 +1,16 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, realpathSync } from 'node:fs';
 import { delimiter, dirname, relative, resolve } from 'node:path';
+import { canonicalPath } from '../lib/paths.mjs';
+import { macLauncherDirectories } from '../lib/launcher-paths.mjs';
 
 const missing = '找不到 Codex CLI。确认 codex --version 能运行；非标准安装可在 config.json 的 agents.codex.path 写 Codex 的绝对路径。';
 function launcherFor(file) {
   if (!existsSync(file) || !statSync(file).isFile()) throw new Error(missing);
   if (/\.(js|mjs|cjs)$/i.test(file)) return { executable: process.execPath, args: [file] };
+  // npm 在 macOS 上使用无扩展名的符号链接；直接用当前运行时，避免依赖 GUI 的 node PATH。
+  const target = realpathSync(file);
+  if (/\.(js|mjs|cjs)$/i.test(target)) return { executable: process.execPath, args: [target] };
   if (!/\.(cmd|bat)$/i.test(file)) return { executable: file, args: [] };
   const wrapper = readFileSync(file, 'utf8');
   // 仅识别 npm 的 Node 包装入口，不执行或求值批处理文本。
@@ -14,7 +19,7 @@ function launcherFor(file) {
   if (entry && existsSync(entry) && statSync(entry).isFile()) return { executable: process.execPath, args: [entry] };
   throw new Error(`无法解析 Codex 的启动包装：${file}。可在 config.json 的 agents.codex.path 写 codex.exe 或 Codex 的 Node 入口（codex.js）的绝对路径。`);
 }
-export function resolveLauncher(env = process.env, platform = process.platform, configuredPath = null) {
+export function resolveLauncher(env = process.env, platform = process.platform, configuredPath = null, launcherOptions = {}) {
   if (configuredPath) return launcherFor(configuredPath);
   // 测试可指定一个 Node 假 agent；不改变真实安装或 PATH。
   if (env.CODEX_DISPATCH_TEST_AGENT) return { executable: process.execPath, args: [resolve(env.CODEX_DISPATCH_TEST_AGENT)] };
@@ -24,6 +29,11 @@ export function resolveLauncher(env = process.env, platform = process.platform, 
       const file = resolve(dir.replace(/^"|"$/g, ''), name);
       if (existsSync(file) && statSync(file).isFile()) return launcherFor(file);
     }
+  }
+  // Finder 不继承终端 PATH；只在现有查找失败后补查 macOS 的常见安装位置。
+  if (platform === 'darwin') for (const dir of macLauncherDirectories(env, launcherOptions)) {
+    const file = resolve(dir, 'codex');
+    if (existsSync(file) && statSync(file).isFile()) return launcherFor(file);
   }
   throw new Error(missing);
 }
@@ -57,7 +67,7 @@ export function mapLine(line, { root }) {
       return [event];
     }
     case 'file_change': return done ? [{ kind: 'file', files: (Array.isArray(i.changes) ? i.changes : [])
-      .filter(f => typeof f?.path === 'string').map(f => ({ kind: ['add', 'update', 'delete'].includes(f.kind) ? f.kind : 'update', path: relative(root, resolve(root, f.path)).replaceAll('\\', '/') })) }] : [];
+      .filter(f => typeof f?.path === 'string').map(f => ({ kind: ['add', 'update', 'delete'].includes(f.kind) ? f.kind : 'update', path: relative(canonicalPath(root), canonicalPath(resolve(root, f.path))).replaceAll('\\', '/') })) }] : [];
     case 'todo_list': return [{ kind: 'plan', items: (Array.isArray(i.items) ? i.items : []).map(t => ({ text: String(t?.text ?? ''), done: t?.completed === true })) }];
     case 'web_search': return done ? [] : [{ kind: 'tool', name: 'web_search', detail: String(i.query ?? '') }];
     case 'mcp_tool_call': return done ? [] : [{ kind: 'tool', name: 'mcp_tool_call', detail: `${i.server ?? ''} ${i.tool ?? ''}` }];
@@ -69,9 +79,9 @@ export function mapLine(line, { root }) {
 export const codex = {
   id: 'codex',
   writesReport: true,
-  detect({ env = process.env, settings = {} } = {}) {
+  detect({ env = process.env, settings = {}, platform = process.platform, launcherOptions = {} } = {}) {
     try {
-      const launcher = resolveLauncher(env, process.platform, settings.path);
+      const launcher = resolveLauncher(env, platform, settings.path, launcherOptions);
       const result = spawnSync(launcher.executable, [...launcher.args, '--version'], { env, encoding: 'utf8', shell: false, windowsHide: true, timeout: 10000 });
       return { installed: !result.error && result.status === 0, version: result.status === 0 ? result.stdout.trim() || null : null, launcher };
     } catch (error) { return { installed: false, version: null, error: error.message }; }

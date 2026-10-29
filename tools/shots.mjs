@@ -36,6 +36,6 @@ try {
     }
     await writeFile(path.join(out,'managed-exit.json'),JSON.stringify({platform:process.platform,appExit:0,executorAliveAfterAppExit:true,agentAliveAfterAppExit:true,taskExit:end.exit,waiterFinished:true},null,2));
     await unlink(path.join(out,'managed-exit-pending.json'));
-    console.log('Windows 实测：真实 Electron 退出后，执行者与假 agent 仍存活，任务 end.exit=0，等待者正常结束。');
+    console.log(`${process.platform} 实测：真实 Electron 退出后，执行者与假 agent 仍存活，任务 end.exit=0，等待者正常结束。`);
   }
 } finally {await fixture.close();}

@@ -18,3 +18,4 @@ const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;
 await new Promise((resolve,reject)=>{const child=spawn(electron,['tools/icons.mjs'],{env,stdio:'inherit',windowsHide:true,shell:false});child.on('error',reject);child.on('exit',(code,signal)=>code===0?resolve():reject(Error('图标生成失败：'+(signal||code))));});
 for(const size of [16,20,24,32,40,48,64,128,256])await copyFile('build/icons/app-'+size+'.png',out+'/icons/app-'+size+'.png');
 await copyFile('build/icons/app.ico',out+'/icons/app.ico');
+await copyFile('build/icons/app.icns',out+'/icons/app.icns');

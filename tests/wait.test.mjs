@@ -70,6 +70,16 @@ test('同一任务同时有 end 和 interrupted 时优先采用 end', async t =>
   const result = await f.launch().done; assert.equal(result.code, 0); assert.match(result.stdout, /exit=0 report=/);
 });
 
+test('同一仓库的符号链接和实际路径能找到同一任务', { skip: process.platform === 'win32' }, async t => {
+  const f = fixture(t), alias = join(f.base, '仓库 别名');
+  fs.symlinkSync(f.repo, alias, 'dir');
+  f.append(f.start({ repo: alias })); f.append({ event: 'end', id: 'sample', exit: 7 });
+  assert.equal(findStart(f.file, fs.realpathSync(f.repo), '中文任务').id, 'sample');
+  const before = fs.readFileSync(f.file), result = await f.launch().done;
+  assert.equal(result.code, 7, result.stderr);
+  assert.deepEqual(fs.readFileSync(f.file), before);
+});
+
 test('真实派发入口使用假 agent：重新等待的失败输出与原派发逐字一致', async t => {
   const f = fixture(t), agent = join(f.base, 'fake-agent.mjs');
   fs.writeFileSync(agent, `if(process.argv.includes('--version')) console.log('codex-cli fake');

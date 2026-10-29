@@ -20,7 +20,7 @@ export async function processList(pid, platform = process.platform, timeout = 50
     const value = JSON.parse(stdout.trim() || '[]');
     return (Array.isArray(value) ? value : [value]).map(p => ({ ...p, command: p.command ?? '' }));
   }
-  const { stdout } = await execute('ps', [...(pid === undefined ? ['-A'] : ['-p', String(pid)]), '-o', 'pid=,ppid=,stat=,lstart=,args='], { ...options, env: { ...process.env, LC_ALL: 'C' } });
+  const { stdout } = await execute('ps', ['-ww', ...(pid === undefined ? ['-A'] : ['-p', String(pid)]), '-o', 'pid=,ppid=,stat=,lstart=,args='], { ...options, env: { ...process.env, LC_ALL: 'C' } });
   return stdout.split('\n').flatMap(line => {
     const m = line.trim().match(/^(\d+)\s+(\d+)\s+(\S+)\s+(\S+\s+\S+\s+\d+\s+\S+\s+\d+)\s+(.*)$/);
     return m && !m[3].startsWith('Z') ? [{ pid: +m[1], parent: +m[2], created: Date.parse(m[4]), command: m[5] }] : [];

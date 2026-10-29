@@ -86,7 +86,7 @@ export async function capture(win: BrowserWindow, registry: Registry, out: strin
     checks.push('窗口启用隔离与沙箱，关闭 Node 集成');
     await check('渲染器没有 Node 权限', 'typeof require === "undefined" && typeof process === "undefined"');
     assert.equal(registry.tasks.filter(t => t.status === 'run').length, 2);
-    checks.push('通过 Windows 进程身份检查识别两个假派发进程');
+    checks.push('通过本机进程身份检查识别两个假派发进程');
     // 捕获真实窗口，不替换数据 API 或渲染器。
     for (const theme of ['dark', 'light'] as const) {
         nativeTheme.themeSource = theme;

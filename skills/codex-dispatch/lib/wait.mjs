@@ -1,8 +1,9 @@
 import { openSync, fstatSync, readSync, closeSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { printCompletion } from './completion.mjs';
 import { taskAlive } from './process.mjs';
+import { canonicalPath } from './paths.mjs';
 
 export const waitInterval = 50;
 
@@ -41,10 +42,14 @@ export function* reverseRows(file) {
   finally { if (fd !== undefined) closeSync(fd); }
 }
 
-const repoKey = value => process.platform === 'win32' ? resolve(value).toLowerCase() : resolve(value);
+const repoKey = value => {
+  const file = canonicalPath(value);
+  return process.platform === 'win32' ? file.toLowerCase() : file;
+};
 export function findStart(file, root, name) {
+  const current = repoKey(root);
   for (const row of reverseRows(file)) {
-    if (row.event === 'start' && typeof row.repo === 'string' && repoKey(row.repo) === repoKey(root)
+    if (row.event === 'start' && typeof row.repo === 'string' && repoKey(row.repo) === current
       && (name === undefined || row.name === name)) return row;
   }
   return null;

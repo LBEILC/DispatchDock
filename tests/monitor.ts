@@ -1,10 +1,12 @@
 ﻿import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp,writeFile,readFile,appendFile,mkdir } from 'node:fs/promises';
+import { mkdtemp,writeFile,readFile,appendFile,mkdir,rm,symlink } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import os from 'node:os';
 import path from 'node:path';
 import { parseRegistry, RegistryReader, statusOf, Registry, importTasks } from '../app/src/main/registry';
-import { dispatchMatches } from '../app/src/main/platform';
+import { dispatchMatches, createPlatform, macosPlatform } from '../app/src/main/platform';
 import { parseEvent,readEvents,PAGE_BYTES } from '../app/src/main/events';
 import { commitFrom,markdown } from '../app/src/shared/markdown';
 import { combine } from '../app/src/renderer/timeline';
@@ -37,12 +39,89 @@ test('搜索按字面匹配并归一化 Unicode，不执行正则也不拼接字
 });
 const ps={pid:42,name:'node.exe',command:'node "C:\\demo\\codex-task.mjs"',created:99000};
 const fixture=async()=>{const home=await mkdtemp(path.join(os.tmpdir(),'dispatchdock-test-'));await mkdir(path.join(home,'monitor'));const entry=row({repo:home,progress:path.join(home,'task.progress.log'),report:path.join(home,'task.md'),events:path.join(home,'task.events.jsonl')});await writeFile(path.join(home,'runs.jsonl'),lines(entry));return {home,entry,task:parseRegistry(lines(entry))[0]};};
+test('导入通过目录别名访问的已登记任务时不重复显示', async t => {
+    const { home, entry } = await fixture();
+    let registry: Registry | undefined;
+    t.after(async () => { await registry?.close(); await rm(home, { recursive: true, force: true }); });
+    const repo = path.join(home, 'repo'), alias = path.join(home, 'repo-link');
+    await mkdir(path.join(repo, '.codex-runs'), { recursive: true });
+    await symlink(repo, alias, process.platform === 'win32' ? 'junction' : 'dir');
+    const started = new Date(2026, 9, 30, 10, 0, 0).getTime();
+    const progress = path.join(repo, '.codex-runs', 'task.progress.log');
+    await writeFile(progress, '=== Codex 开始：演示  2026/10/30 10:00:00 ===\n=== Codex 结束：exit=0，用时 1 分钟 ===\n');
+    await writeFile(path.join(home, 'runs.jsonl'), lines({ ...entry, repo, progress, started }, { v: 1, event: 'end', id: entry.id, exit: 0, at: started + 60000 }));
+    registry = new Registry(home, path.join(home, 'monitor'), { processes: async () => [], killTree: async () => {}, open: async () => {} }, () => {}, () => {}, error => { throw error; });
+    await registry.start();
+    await registry.import(alias);
+    assert.equal(registry.tasks.length, 1);
+    assert.equal(registry.tasks[0].id, entry.id);
+});
+test('Unix 上已删除且仅大小写不同的仓库仍分别保留导入任务', { skip: process.platform === 'win32' }, async t => {
+    const { home, entry, task } = await fixture();
+    let registry: Registry | undefined;
+    t.after(async () => { await registry?.close(); await rm(home, { recursive: true, force: true }); });
+    const repo = path.join(home, 'removed', 'Repo'), importedRepo = path.join(home, 'removed', 'repo');
+    await writeFile(path.join(home, 'runs.jsonl'), lines({ ...entry, repo }, { v: 1, event: 'end', id: entry.id, exit: 0 }));
+    await writeFile(path.join(home, 'monitor', 'tasks.json'), JSON.stringify({ imports: [{ ...task, id: 'import-case', repo: importedRepo, imported: true, status: 'done', exit: 0 }], hidden: [] }));
+    registry = new Registry(home, path.join(home, 'monitor'), { processes: async () => [], killTree: async () => {}, open: async () => {} }, () => {}, () => {}, error => { throw error; });
+    await registry.start();
+    assert.equal(registry.tasks.length, 2);
+});
 test('清单合并、半行、坏行、未知字段，end 始终优先于 interrupted',()=>{
   const end={v:1,event:'end',id:'sample',exit:0,at:110000,minutes:1},stop={v:1,event:'interrupted',id:'sample',at:105000,signal:'stopped-by-app'};
   for(const middle of [[stop,end],[end,stop]]){const parsed=parseRegistry(lines(row({future:'ignore'}))+'broken\n'+lines(...middle)+JSON.stringify(row({id:'half'})));assert.equal(parsed.length,1);assert.equal(parsed[0].status,'done');assert.equal('future' in parsed[0],false);}
   assert.equal(parseRegistry(lines(row(),stop))[0].status,'stop');assert.equal(parseRegistry(lines(row(),{...end,exit:null}))[0].status,'fail');
 });
 test('进程核对拒绝复用 PID、错误进程、未来创建时间与超过 60 秒',()=>{const t=parseRegistry(lines(row()))[0];assert.equal(statusOf(t,[ps]),'run');for(const p of [{...ps,name:'cmd.exe'},{...ps,command:'node unrelated.mjs'},{...ps,created:100001},{...ps,created:40000},{...ps,pid:43}])assert.equal(statusOf(t,[p]),'stop');assert.equal(dispatchMatches(ps,100000),true);});
+test('macOS 的 Node 进程保持相同的脚本、创建时间和 PID 核对规则', () => {
+    const task = parseRegistry(lines(row()))[0];
+    const node = { ...ps, name: 'node', command: '/opt/example/bin/node "/tmp/演示 project/codex-task.mjs"' };
+    assert.equal(statusOf(task, [node]), 'run');
+    for (const value of [{ ...node, name: 'python' }, { ...node, command: 'node /tmp/not-codex-task.mjs' }, { ...node, created: 100001 }, { ...node, created: 40000 }]) assert.equal(statusOf(task, [value]), 'stop');
+});
+test('平台选择拒绝未支持的系统，macOS 拒绝无效 PID 并传播打开文件失败', async () => {
+    assert.throws(() => createPlatform(async () => '', 'linux'), /Unsupported platform/);
+    assert.ok(createPlatform(async () => '', 'win32'));
+    const platform = createPlatform(async () => '打开失败', 'darwin');
+    assert.deepEqual(await platform.processes([]), []);
+    await assert.rejects(platform.processes([-1]), /Invalid PID/);
+    await assert.rejects(platform.processes([1.5]), /Invalid PID/);
+    await assert.rejects(platform.killTree(123), /Invalid process identity/);
+    await assert.rejects(platform.open('/demo/report.md'), /打开失败/);
+});
+test('macOS 平台核对隔离派发进程并停止全部假子进程，保留无关进程', { skip: process.platform !== 'darwin' }, async t => {
+    const home = await mkdtemp(path.join(os.tmpdir(), 'dispatchdock-platform-'));
+    const script = path.join(home, 'codex-task.mjs'), ready = path.join(home, 'ready.json');
+    await writeFile(script, "import { spawn } from 'node:child_process'; import { writeFileSync } from 'node:fs'; const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'}); writeFileSync(process.argv[2],JSON.stringify({pid:child.pid})); setInterval(()=>{},1000);");
+    const env = { ...process.env, CODEX_DISPATCH_HOME: home };
+    const root = spawn(process.execPath, [script, ready], { env, stdio: 'ignore', shell: false });
+    const unrelated = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { env, stdio: 'ignore', shell: false });
+    const rootExit = once(root, 'exit'), unrelatedExit = once(unrelated, 'exit');
+    let childPid: number | undefined, treeStopped = false;
+    t.after(async () => {
+        if (root.exitCode === null && root.signalCode === null) root.kill('SIGKILL');
+        if (childPid && !treeStopped) { try { process.kill(childPid, 'SIGKILL'); } catch { /* 假进程已经退出。 */ } }
+        if (unrelated.exitCode === null && unrelated.signalCode === null) unrelated.kill('SIGKILL');
+        await Promise.all([rootExit, unrelatedExit]);
+        await rm(home, { recursive: true, force: true });
+    });
+    for (let i = 0; i < 100; i++) {
+        try { childPid = JSON.parse(await readFile(ready, 'utf8')).pid; break; } catch { await new Promise(resolve => setTimeout(resolve, 20)); }
+    }
+    assert.ok(childPid, '隔离假派发进程应启动子进程');
+    const platform = macosPlatform(async () => '');
+    const list = await platform.processes([root.pid!, unrelated.pid!]);
+    const identity = list.find(value => value.pid === root.pid);
+    assert.equal(identity?.name, 'node');
+    assert.equal(dispatchMatches(identity, Date.now()), true);
+    await assert.rejects(platform.killTree(unrelated.pid!), /Invalid process identity/);
+    assert.equal(unrelated.signalCode, null);
+    await platform.killTree(root.pid!);
+    treeStopped = true;
+    await rootExit;
+    assert.deepEqual(await platform.processes([root.pid!, childPid!]), []);
+    assert.equal(unrelated.signalCode, null);
+});
 test('清单增量与截断恢复',async()=>{const {home,entry}=await fixture(),file=path.join(home,'runs.jsonl'),reader=new RegistryReader();assert.equal((await reader.read(file)).length,1);await appendFile(file,JSON.stringify({v:1,event:'end',id:'sample',exit:0,at:2}));assert.equal((await reader.read(file))[0].status,'run');await appendFile(file,'\n');assert.equal((await reader.read(file))[0].status,'done');await writeFile(file,lines({...entry,id:'new'}));assert.equal((await reader.read(file))[0].id,'new');});
 test('事件尾页、增量半行与前向翻页按字节限制，未知事件忽略',async()=>{const {task}=await fixture();const make=(seq:number)=>({v:1,seq,at:seq,kind:'say',text:'中文'.repeat(60)});const source=Array.from({length:9000},(_,i)=>make(i+1));await writeFile(task.events!,lines(...source));const page=await readEvents(task);assert.ok(page.cursor.start>0);assert.ok(page.cursor.end-page.cursor.start<=PAGE_BYTES);assert.equal(page.events.at(-1)?.seq,9000);const before=await readEvents(task,page.cursor,true);assert.ok(before.events.length>0);assert.ok(before.events.at(-1)!.seq<page.events[0].seq);assert.equal(before.cursor.end,page.cursor.end);const next=make(9001);await appendFile(task.events!,JSON.stringify(next));assert.equal((await readEvents(task,page.cursor)).events.length,0);await appendFile(task.events!,'\n'+lines({v:1,seq:9002,at:0,kind:'future'}));const update=await readEvents(task,page.cursor);assert.equal(update.events.length,1);assert.equal(update.events[0].text,next.text);await writeFile(task.events!,lines(make(1)));assert.equal((await readEvents(task,update.cursor)).reset,true);});
 test('旧进度解析包括错误、计划、命令失败与统一文件事件；不读取原始 log',async()=>{assert.equal(parseEvent('[12:00:00] 错误：失败',0,true)?.kind,'error');assert.equal(parseEvent('[12:00:00] 出错：失败',0,true)?.kind,'error');assert.deepEqual(parseEvent('[12:00:00] 计划：[x] 第一步 [ ] 第二步',0,true)?.items,[{text:'第一步',done:true},{text:'第二步',done:false}]);assert.equal(parseEvent('[12:00:00]   命令失败（exit 1）：npm test',0,true)?.exit,1);assert.equal(parseEvent('[12:00:00] 新增文件：src/demo.ts',0,true)?.files?.[0].kind,'add');const {task}=await fixture();task.raw=task.progress.replace('.progress.log','.log');await writeFile(task.raw,'private raw');await writeFile(task.progress,'[12:00:00] 说：进度\n');assert.equal((await readEvents(task)).events[0].text,'进度');});

@@ -6,6 +6,8 @@ import type { Task } from '../shared/types';
 import { commitFrom } from '../shared/markdown';
 import { c } from '../shared/copy';
 import { dispatchMatches, type Platform, type ProcessInfo } from './platform';
+import { canonicalPath } from '../../../skills/codex-dispatch/lib/paths.mjs';
+const repositoryKey = (repo: string) => { const file = canonicalPath(repo); return process.platform === 'win32' ? file.toLowerCase() : file; };
 export function mergeLine(tasks: Map<string, Task>, line: string) {
     try {
         const e = JSON.parse(line);
@@ -195,8 +197,8 @@ export class Registry {
             if (t.status === 'stop' && !t.ended)
                 t.ended = this.tasks.find(x => x.id === t.id)?.ended ?? Date.now();
         }
-        const identities = new Set(rows.map(t => `${t.repo.toLowerCase()}:${t.name}:${Math.floor(t.started / 1000)}`));
-        const next = [...rows, ...this.imports.filter(t => !identities.has(`${t.repo.toLowerCase()}:${t.name}:${Math.floor(t.started / 1000)}`))].filter(t => t.status === 'run' || !this.hidden.has(this.key(t))).sort((a, b) => b.started - a.started);
+        const identities = new Set(rows.map(t => `${repositoryKey(t.repo)}:${t.name}:${Math.floor(t.started / 1000)}`));
+        const next = [...rows, ...this.imports.filter(t => !identities.has(`${repositoryKey(t.repo)}:${t.name}:${Math.floor(t.started / 1000)}`))].filter(t => t.status === 'run' || !this.hidden.has(this.key(t))).sort((a, b) => b.started - a.started);
         for (const t of next) {
             t.last = (await tail(t.progress)).trimEnd().split('\n').at(-1)?.replace(/^\[.*?\]\s*/, '') ?? '';
             t.commit = commitFrom(await reportText(t.report));

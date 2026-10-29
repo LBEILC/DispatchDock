@@ -16,10 +16,13 @@ export async function createManaged(root, env = process.env, onError = console.e
   function reject(file, reason) {
     const target = file.replace(/\.(request|claimed)\.json$/, '.rejected.json');
     try {
-      renameSync(file, target);
-      let value; try { value = JSON.parse(readFileSync(target, 'utf8')); } catch { value = {}; }
+      // 先认领，避免等待者收回请求；带原因的拒绝文件一次发布，不暴露半成品。
+      const claimed = file.replace(/\.request\.json$/, '.claimed.json');
+      if (claimed !== file) renameSync(file, claimed);
+      let value; try { value = JSON.parse(readFileSync(claimed, 'utf8')); } catch { value = {}; }
       writeFileSync(target + '.tmp', JSON.stringify({ ...value, reason }), { mode: 0o600 });
       renameSync(target + '.tmp', target);
+      remove(claimed);
     } catch (e) { if (e.code !== 'ENOENT') onError(e); }
   }
   function verify(r, file) {

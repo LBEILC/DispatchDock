@@ -19,7 +19,7 @@ You talk things through with a model in Claude Code and make the decisions. Exec
 - **Dispatching**: two skills you install into the dispatching agent. They teach it how to hand off work, follow progress, read the report and review the result.
 - **Watching**: a desktop app that shows every dispatched task in one window: live progress, the report, which files changed. You can stop any task.
 
-The two parts work independently. With only the skills installed, progress shows up in a read-only terminal window.
+The two parts work independently. With only the skills installed, Windows and macOS both open a read-only progress window automatically. When the app is running, progress appears there by default.
 
 v0.1 supports:
 
@@ -27,7 +27,7 @@ v0.1 supports:
 |---|---|
 | Dispatchers | Claude Code (including the Code tab in Claude Desktop), Devin |
 | Workers | Codex CLI |
-| OS | Windows 10 / 11 |
+| OS | Windows 10 / 11, macOS (Apple Silicon first; optional Intel build) |
 
 ## The two skills
 
@@ -57,8 +57,8 @@ You need:
 
 ### Option 1: the app (recommended)
 
-1. Download the installer (`.exe`) from [Releases](https://github.com/LBEILC/DispatchDock/releases) and run it.
-2. The installer is not code-signed. Windows may show "Windows protected your PC": click "More info", then "Run anyway".
+1. Download the package for your OS from [Releases](https://github.com/LBEILC/DispatchDock/releases): `.exe` for Windows; `.dmg` for macOS (`arm64` for Apple Silicon, `x64` for Intel). On macOS, open the DMG and drag the app to Applications.
+2. Unsigned Windows installers may show "Windows protected your PC": click "More info", then "Run anyway". See the corresponding Release notes for the macOS package's signing and notarization status. Local ad-hoc builds do not include Apple notarization.
 3. On first launch a short setup detects your dispatchers and Codex, installs the skills and sets defaults. Every step can be skipped and changed later on the Connections and Settings pages.
 
 ### Option 2: skills only
@@ -85,6 +85,8 @@ The skills only work in Claude Code; the regular chat in the desktop app can't s
 
 The model dispatches it in the background with `codex-dispatch` and tells you the record name and where to watch progress. When Codex is done, the model reads the report, checks the commit, runs the checks and tells you the result in plain words.
 
+On macOS, the separate progress window uses the system Terminal. Closing it does not stop the task. Run `node "<skill-folder>/codex-watch.mjs" "<repo-folder>"` to follow the most recent progress manually. When launched from Finder, the app also checks common Homebrew, npm and Node version manager installation locations. For custom locations, select the Codex executable on the Connections page or configure its absolute path.
+
 For an ongoing "design lead + Codex executes" collaboration, ask it to set up `dual-role-workflow` in your project. It creates `AGENTS.md`, role documents and a spec folder.
 
 ### Defaults
@@ -102,7 +104,7 @@ With no arguments it shows the current values. Pass `model=<name>`, `effort=high
 The skills and the app never talk over the network. They share a few local files:
 
 - Each task's records live in the repo's `.codex-runs/`: the report, a short progress log, structured events, and raw output.
-- The list of all tasks is in `%APPDATA%\codex-dispatch\runs.jsonl`.
+- The list of all tasks is in `%APPDATA%\codex-dispatch\runs.jsonl` on Windows, or `~/.config/codex-dispatch/runs.jsonl` on macOS (following `XDG_CONFIG_HOME` when set).
 
 The format is specified in [`docs/protocol.md`](docs/protocol.md) (Chinese). Other tools can read the same files, and new workers can be added through an adapter; see [`skills/codex-dispatch/adapters/README.md`](skills/codex-dispatch/adapters/README.md).
 
@@ -120,6 +122,18 @@ npm run verify     # tests and type checks
 npm run verify:task-list # synthetic task-list checks, screenshots and performance samples
 npm run dist       # build the installer
 ```
+
+Build macOS packages on a Mac using Command Line Tools; the full Xcode application is not required for local builds. By default, macOS builds produce native Apple Silicon (`arm64`) DMG and ZIP packages without a Rosetta dependency. Intel builds require an explicit target:
+
+```bash
+npm run dist -- --mac --arm64 --ad-hoc   # local testing, ad-hoc signed, no notarization
+npm run verify:packaged                # test the native-architecture app with isolated demo data
+npm run dist -- --mac                  # arm64, using the publisher's signing configuration
+npm run dist -- --mac --x64 --ad-hoc    # optional Intel compatibility build
+npm run dist -- --win --x64             # Windows installer
+```
+
+Add `--dir` to produce only the unpacked application. Ad-hoc signing is for development verification. For public distribution, configure Developer ID signing and notarization using the [electron-builder macOS signing guide](https://www.electron.build/code-signing-mac.html). Build commands never upload or publish packages. GitHub Actions verifies on macOS and Windows and uploads macOS build artifacts; maintainers control formal Releases.
 
 This project was itself built with `dual-role-workflow`. The split is described in [`AGENTS.md`](AGENTS.md) and [`docs/roles/`](docs/roles/), the UI rules in [`docs/design.md`](docs/design.md), and the mockups live in [`app/design/`](app/design/).
 
