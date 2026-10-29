@@ -9,6 +9,7 @@
   "scripts": {
     "verify": "tsc --noEmit && node tools/verify-monitor.mjs && node --test",
     "verify:task-list": "npm run build && electron tools/verify-task-list.mjs",
+    "verify:settings": "npm run build && electron tools/verify-settings.mjs",
     "build": "node tools/build.mjs",
     "start": "npm run build && electron .",
     "shots": "npm run build && node tools/shots.mjs",

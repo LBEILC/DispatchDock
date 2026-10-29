@@ -75,7 +75,10 @@ export class PreferencesView {
     }
     private description(key: string, fallback = '') { const o=this.settings.overrides[key]; return o?`<span class="override">${esc(p.override(o.name,o.value))}</span>`:esc(fallback); }
     private defaults(sandbox = true) {
-        const rows = ['model','effort','tier'].map(key=>row(key==='model'?c.model:key==='effort'?c.effort:p.tier,this.description(key,key==='model'&&!this.settings.values.model?p.currentHelp:''),`<button class="sel" data-setting="${key}" aria-haspopup="listbox" aria-expanded="false" ${this.settings.reason||this.busy?'disabled':''}><span class="${this.settings.values[key]?'mono':'ph'}">${esc(this.settings.values[key]||p.follow(this.settings.current[key]))}</span>${icon('arrow-down-s-line')}</button>`));
+        const rows = ['model','effort','tier'].map(key=>{
+            const label=this.settings.values[key]||p.follow(this.settings.current[key]);
+            return row(key==='model'?c.model:key==='effort'?c.effort:p.tier,this.description(key,key==='model'&&!this.settings.values.model?p.currentHelp:''),`<button class="sel" data-setting="${key}" title="${esc(label)}" aria-haspopup="listbox" aria-expanded="false" ${this.settings.reason||this.busy?'disabled':''}><span class="${this.settings.values[key]?'mono':'ph'}">${esc(label)}</span>${icon('arrow-down-s-line')}</button>`);
+        });
         if(sandbox) rows.push(row(c.sandbox,this.description('sandbox',p.sandboxHelp),this.segment('sandbox',['workspace-write','read-only'],[p.writable,p.readonly],this.settings.values.sandbox!)));
         return `<div class="set">${rows.join('')}</div>`;
     }

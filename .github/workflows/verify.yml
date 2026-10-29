@@ -36,6 +36,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run fonts
+      - run: npm run verify:settings
       # 只使用临时签名，不访问发布证书或公证密钥；产物供人工验收。
       - run: npm run dist -- --mac --arm64 --ad-hoc
       - name: Verify the native-architecture packaged app

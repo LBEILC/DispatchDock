@@ -265,8 +265,10 @@ body.dragging, body.dragging * { user-select: none !important; }
 .set-r { display: flex; align-items: center; gap: 24px; min-height: 60px; padding: 10px 0; border-bottom: 1px solid var(--divider); }
 .set-r .l { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .set-r .l span { color: var(--text-3); font-size: var(--fs-small); line-height: var(--lh-small); }
-.set-r .ctl { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
-.set-r .sel { width: 200px; }
+.set-r .ctl { flex: 0 0 auto; min-width: 0; max-width: 60%; display: flex; align-items: center; gap: 8px; }
+.set-r .sel { width: 220px; max-width: 100%; }
+.set-r .sel > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.set-r .sel > i { flex-shrink: 0; }
 .set-r .src { color: var(--text-3); font-size: 11px; }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
@@ -302,6 +304,8 @@ body.dragging, body.dragging * { user-select: none !important; }
 .ctx button { display: flex; align-items: center; gap: 10px; width: 100%; height: var(--ctl); padding: 0px 10px; border: 0px; border-radius: 6px; background: transparent; color: var(--text); font-style: inherit; font-variant: inherit; font-weight: inherit; font-stretch: inherit; line-height: inherit; font-family: inherit; font-optical-sizing: inherit; font-size-adjust: inherit; font-kerning: inherit; font-feature-settings: inherit; font-variation-settings: inherit; font-language-override: inherit; font-size: 13px; text-align: left; cursor: default; }
 .ctx button i { font-size: 15px; color: var(--text-3); }
 .ctx button span { flex: 1 1 0%; }
+.ctx[role="listbox"] { max-width: calc(100vw - 16px); }
+.ctx[role="listbox"] button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ctx button kbd { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
 .ctx button:hover, .ctx button:focus-visible { background: var(--surface-2); outline: none; }
 .ctx button:disabled { color: var(--text-3); background: transparent; }
@@ -342,7 +346,7 @@ button{cursor:default;} :focus-visible{outline:2px solid var(--focus);outline-of
 .card-f { flex-wrap: wrap; }
 .card-b .path { margin: -6px 0 6px; overflow-wrap: anywhere; }
 .set-r .l .override { color: var(--warn); }
-.model-input { width: 200px; height: 32px; border: 1px solid var(--border); border-radius: var(--r-ctl); background: var(--surface); color: var(--text); padding: 0 10px; }
+.model-input { width: 220px; max-width: 100%; height: 32px; border: 1px solid var(--border); border-radius: var(--r-ctl); background: var(--surface); color: var(--text); padding: 0 10px; }
 .choice { width: 100%; text-align: left; color: var(--text); font: inherit; }
 .wiz-body { overflow-y: auto; }
 .wiz-body .card-b { padding-top: 8px; padding-bottom: 8px; }

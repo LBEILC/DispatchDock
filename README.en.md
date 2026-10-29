@@ -120,6 +120,7 @@ npm run fonts      # fetch the MiSans font from its official page (not checked i
 npm run demo       # start with demo data, never touches your real tasks
 npm run verify     # tests and type checks
 npm run verify:task-list # synthetic task-list checks, screenshots and performance samples
+npm run verify:settings  # wizard and settings layout checks with synthetic long model names
 npm run dist       # build the installer
 ```
 

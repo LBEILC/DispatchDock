@@ -118,6 +118,7 @@ npm run fonts      # 从官方下载页获取 MiSans 字体（不进仓库）
 npm run demo       # 用演示数据启动，不碰你真实的任务
 npm run verify     # 测试和类型检查
 npm run verify:task-list # 合成任务的列表交互检查、截图和性能采样，不读取真实任务
+npm run verify:settings  # 合成长模型名的引导页、设置页布局检查
 npm run dist       # 打安装包
 ```
 
