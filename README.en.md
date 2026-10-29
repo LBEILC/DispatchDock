@@ -134,7 +134,7 @@ npm run dist -- --mac --x64 --ad-hoc    # optional Intel compatibility build
 npm run dist -- --win --x64             # Windows installer
 ```
 
-Add `--dir` to produce only the unpacked application. Ad-hoc signing is for development verification. For public distribution, configure Developer ID signing and notarization using the [electron-builder macOS signing guide](https://www.electron.build/code-signing-mac.html). Build commands never upload or publish packages. GitHub Actions verifies on macOS and Windows and uploads macOS build artifacts; maintainers control formal Releases.
+Add `--dir` to produce only the unpacked application. Ad-hoc signing is for development verification. For public distribution, configure Developer ID signing and notarization using the [electron-builder macOS signing guide](https://www.electron.build/v26/docs/features/code-signing/code-signing-mac/). Build commands never upload or publish packages. GitHub Actions verifies on macOS and Windows and uploads macOS build artifacts; maintainers control formal Releases.
 
 This project was itself built with `dual-role-workflow`. The split is described in [`AGENTS.md`](AGENTS.md) and [`docs/roles/`](docs/roles/), the UI rules in [`docs/design.md`](docs/design.md), and the mockups live in [`app/design/`](app/design/).
 

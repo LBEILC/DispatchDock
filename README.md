@@ -132,7 +132,7 @@ npm run dist -- --mac --x64 --ad-hoc    # 可选 Intel 兼容构建
 npm run dist -- --win --x64             # Windows 安装包
 ```
 
-`--dir` 只生成解包后的程序目录。临时签名产物适合开发验证；面向用户发布时应按 [electron-builder 的 macOS 签名说明](https://www.electron.build/code-signing-mac.html)配置 Developer ID 和公证凭据。构建命令不会上传或发布产物。GitHub Actions 在 macOS 和 Windows 上运行验证并上传 macOS 构建产物，正式 Release 由维护者决定。
+`--dir` 只生成解包后的程序目录。临时签名产物适合开发验证；面向用户发布时应按 [electron-builder 的 macOS 签名说明](https://www.electron.build/v26/docs/features/code-signing/code-signing-mac/)配置 Developer ID 和公证凭据。构建命令不会上传或发布产物。GitHub Actions 在 macOS 和 Windows 上运行验证并上传 macOS 构建产物，正式 Release 由维护者决定。
 
 这个项目本身就是用 `dual-role-workflow` 做的：分工写在 [`AGENTS.md`](AGENTS.md) 和 [`docs/roles/`](docs/roles/)，界面规范在 [`docs/design.md`](docs/design.md)，界面稿在 [`app/design/`](app/design/)。
 
