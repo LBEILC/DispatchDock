@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 
-const profile = mkdtempSync(path.join(os.tmpdir(), 'dispatchdock-settings-'));
+const profile = process.env.DISPATCHDOCK_VERIFY_PROFILE || mkdtempSync(path.join(os.tmpdir(), 'dispatchdock-settings-'));
 process.env.CODEX_DISPATCH_HOME = profile;
 app.setPath('userData', profile);
 app.disableHardwareAcceleration();
@@ -18,7 +18,7 @@ async function main() {
 try {
   await app.whenReady();
   await mkdir(out, { recursive: true });
-  win = new BrowserWindow({ show: false, width: 1160, height: 720, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
+  win = new BrowserWindow({ show: false, width: 1160, height: 720, webPreferences: { partition: 'verify-settings', spellcheck: false, sandbox: true, contextIsolation: true, nodeIntegration: false } });
   win.webContents.setBackgroundThrottling(false);
   const evaluate = code => win.webContents.executeJavaScript(code);
   const wait = async code => { for (let i = 0; i < 100; i++) { if (await evaluate(code)) return; await new Promise(resolve => setTimeout(resolve, 20)); } throw Error('等待界面超时：' + code); };
@@ -74,10 +74,12 @@ try {
     }
   }
   win.setContentSize(960,600);
-  for (const model of ['gpt-6-astra','gpt-6.1-astra']) {
+  for (const model of ['mdl-6-sigma','test-6-alpha']) {
     await evaluate(`sampleSettings.current.model=${JSON.stringify(model)};document.querySelector('[data-page=tasks]').click();document.querySelector('[data-page=settings]').click();`);
     await wait(`document.querySelector('[data-setting=model]')?.textContent.includes(${JSON.stringify(model)})`);
-    await check('Astra 标签在最小窗口完整单行：'+model, `(() => {const b=document.querySelector('[data-setting=model]'),s=b.querySelector('span'),r=document.createRange();r.selectNodeContents(s);return r.getClientRects().length===1 && s.scrollWidth<=s.clientWidth && b.offsetWidth<=224;})()`);
+    // 确认样例仍覆盖旧 200px 控件的换行边界，然后恢复正式样式。
+    await check('模型标签在旧 200px 宽度会换行：'+model, `(() => {const b=document.querySelector('[data-setting=model]'),s=b.querySelector('span'),oldB=b.style.cssText,oldS=s.style.cssText;try {b.style.width='200px';s.style.whiteSpace='normal';const r=document.createRange();r.selectNodeContents(s);return r.getClientRects().length>1;}finally{b.style.cssText=oldB;s.style.cssText=oldS;}})()`);
+    await check('模型标签在最小窗口完整单行：'+model, `(() => {const b=document.querySelector('[data-setting=model]'),s=b.querySelector('span'),r=document.createRange();r.selectNodeContents(s);return r.getClientRects().length===1 && s.scrollWidth<=s.clientWidth && b.offsetWidth<=224;})()`);
   }
   const long = 'example-model-' + 'very-long-'.repeat(20);
   await evaluate(`sampleSettings.current.model=${JSON.stringify(long)}; document.querySelector('[data-page=tasks]').click();document.querySelector('[data-page=settings]').click();`);
@@ -91,6 +93,6 @@ try {
   await writeFile(path.join(out,'checks.json'),JSON.stringify({checks,measurements},null,2));
   console.log(JSON.stringify({checks:checks.length,out},null,2));
 } catch (error) { console.error(error); process.exitCode=1; }
-finally { win?.destroy(); await rm(htmlFile,{force:true}); await rm(profile,{recursive:true,force:true,maxRetries:5}); app.exit(process.exitCode||0); }
+finally { win?.destroy(); await rm(htmlFile,{force:true}); if(!process.env.DISPATCHDOCK_VERIFY_PROFILE)await rm(profile,{recursive:true,force:true,maxRetries:5}); app.exit(process.exitCode||0); }
 }
 void main().catch(error => { console.error(error); app.exit(1); });

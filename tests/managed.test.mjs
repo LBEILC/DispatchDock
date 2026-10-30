@@ -23,7 +23,7 @@ async function until(fn, timeout = 10000) {
   while (Date.now() < deadline) { const result = fn(); if (result) return result; await delay(25); }
   throw Error('隔离测试等待超时');
 }
-async function fixture(t, { exit = 0, duration = 150, stderr = '', tree = false } = {}) {
+async function fixture(t, { exit = 0, duration = 150, stderr = '', tree = false, gated = false } = {}) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatchdock-managed-'));
   const home = path.join(base, 'home'), repo = path.join(base, 'repo'), host = path.join(base, 'host');
   for (const dir of [home, repo, host]) fs.mkdirSync(dir);
@@ -32,7 +32,7 @@ async function fixture(t, { exit = 0, duration = 150, stderr = '', tree = false 
   for (const key of ['CODEX_DRY_RUN','CODEX_MODEL','CODEX_EFFORT','CODEX_TIER','CODEX_SANDBOX','CODEX_DISPATCH_TEST_AGENT','NODE_OPTIONS','ELECTRON_RUN_AS_NODE']) delete env[key];
   const agent = path.join(base, 'fake-agent.cjs');
   if (tree) fs.writeFileSync(path.join(base, 'descendant.cjs'), `require('node:fs').writeFileSync(require('node:path').join(__dirname,'descendant.json'),JSON.stringify({pid:process.pid}));setInterval(()=>{},1000);`);
-  fs.writeFileSync(path.join(base, 'agent.json'), JSON.stringify({ exit, duration, stderr }));
+  fs.writeFileSync(path.join(base, 'agent.json'), JSON.stringify({ exit, duration, stderr, gated }));
   fs.writeFileSync(agent, `const fs=require('node:fs'),path=require('node:path');
 if(process.argv.includes('--version')){console.log('codex-cli fake-managed');process.exit(0);}
 let prompt='';process.stdin.setEncoding('utf8');process.stdin.on('data',s=>prompt+=s);process.stdin.on('end',()=>{
@@ -40,7 +40,8 @@ const settings=JSON.parse(fs.readFileSync(path.join(__dirname,'agent.json'),'utf
 ${tree ? "require('node:child_process').spawn(process.execPath,[path.join(__dirname,'descendant.cjs')],{stdio:'ignore',windowsHide:true,shell:false});" : ''}
 fs.writeFileSync(path.join(__dirname,'echo.json'),JSON.stringify({pid:process.pid,args:process.argv.slice(2),prompt,home:process.env.CODEX_HOME,key:process.env.OPENAI_API_KEY}));
 console.log(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:'隔离任务正在执行'}}));
-setTimeout(()=>{fs.writeFileSync(process.argv[process.argv.indexOf('-o')+1],'隔离汇报');if(settings.stderr)process.stderr.write(settings.stderr+'\\n');process.exitCode=settings.exit;},settings.duration);
+const finish=()=>{fs.writeFileSync(process.argv[process.argv.indexOf('-o')+1],'隔离汇报');if(settings.stderr)process.stderr.write(settings.stderr+'\\n');process.exitCode=settings.exit;};
+if(settings.gated){const timer=setInterval(()=>{if(fs.existsSync(path.join(__dirname,'release-agent'))){clearInterval(timer);finish();}},25);}else setTimeout(finish,settings.duration);
 });`);
   const configFile = path.join(home, 'config.json');
   fs.writeFileSync(configFile, JSON.stringify({ v: 1, managed: true, watchWindow: 'never', agents: { codex: { path: agent } } }));
@@ -336,7 +337,7 @@ test('请求校验、环境白名单、完整行读取和启动清理', async t 
 });
 
 test('终止假派活方整棵进程树，执行者和假 agent 继续到 end', async t => {
-  const f=await fixture(t,{duration:2500});await f.service();
+  const f=await fixture(t,{gated:true});await f.service();
   const hostFile=path.join(f.base,'fake-host.mjs');
   fs.writeFileSync(hostFile,`import {spawn} from 'node:child_process';const child=spawn(process.execPath,[${JSON.stringify(f.script)},'隔离任务'],{stdio:'inherit',windowsHide:true,shell:false});child.on('close',code=>process.exit(code));`);
   const host=f.launch(hostFile,[]);
@@ -345,6 +346,8 @@ test('终止假派活方整棵进程树，执行者和假 agent 继续到 end', 
   const executor=rows(f.home)[0];
   await killProcessTree(host.pid);
   assert.equal(alive(host.pid),false);assert.equal(alive(executor.pid),true);assert.equal(alive(started.agentPid),true);
+  // 存活断言通过后才允许假任务完成，不与进程树查询速度竞争。
+  fs.writeFileSync(path.join(f.base,'release-agent'),'');
   const end=await until(()=>rows(f.home).find(r=>r.event==='end'));assert.equal(end.exit,0);
   t.diagnostic('仅结束本测试假派活方的进程树：派活方与等待者退出；执行者、假 agent 存活；唯一 end.exit=0。');
 });

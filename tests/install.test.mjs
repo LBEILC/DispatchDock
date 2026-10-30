@@ -421,7 +421,7 @@ function expected(skill, host) {
 test('两个技能乘两个宿主合成与独立预期完全相同', t => {
   const s = setup(t), plan = createPlan(s.options);
   assert.equal(plan.items.length, 4);
-  for (const item of plan.items) assert.equal(item.files.get('SKILL.md').data.toString(), expected(item.skill, item.host));
+  for (const item of plan.items) assert.equal(item.files.get('SKILL.md').data.toString().replace(/\r\n/g, '\n'), expected(item.skill, item.host).replace(/\r\n/g, '\n'));
   assert.equal(composeSkill('---\nname: example\nvalue:\n  nested: old\n---\n<!-- host:a -->\nA\n<!-- /host:a -->\n', '---\nvalue:\n  nested: new\n---\n'), '---\nname: example\nvalue:\n  nested: new\n---\nA\n');
 });
 

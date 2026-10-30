@@ -17,6 +17,9 @@ module.exports = {
     target: [{ target: 'dmg', arch: ['arm64'] }, { target: 'zip', arch: ['arm64'] }],
     icon: 'build/icons/app.icns',
     category: 'public.app-category.developer-tools',
+    entitlements: 'build/entitlements.mac.plist',
+    entitlementsInherit: 'build/entitlements.mac.plist',
+    hardenedRuntime: false,
     artifactName: 'DispatchDock-${version}-mac-${arch}.${ext}',
   },
   nsis: {

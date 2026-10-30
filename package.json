@@ -9,7 +9,7 @@
   "scripts": {
     "verify": "tsc --noEmit && node tools/verify-monitor.mjs && node --test",
     "verify:task-list": "npm run build && electron tools/verify-task-list.mjs",
-    "verify:settings": "npm run build && electron tools/verify-settings.mjs",
+    "verify:settings": "npm run build && node tools/verify-settings-run.mjs",
     "build": "node tools/build.mjs",
     "start": "npm run build && electron .",
     "shots": "npm run build && node tools/shots.mjs",
@@ -26,7 +26,7 @@
   "devDependencies": {
     "@types/node": "24.10.1",
     "electron": "43.7.5",
-    "electron-builder": "26.15.3",
+    "electron-builder": "26.16.1",
     "esbuild": "0.27.3",
     "typescript": "5.9.3"
   },

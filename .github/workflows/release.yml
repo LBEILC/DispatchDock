@@ -1,0 +1,91 @@
+name: Package macOS release
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Optional tag to build (artifacts only)
+        required: false
+        type: string
+permissions:
+  contents: read
+jobs:
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - uses: actions/cache/restore@v5
+        id: misans-cache
+        with:
+          path: build/fonts/MiSansVF.ttf
+          enableCrossOsArchive: true
+          key: dispatchdock-misans-v4.003-5daf8d5447bfd423cfdec94a0e07c53b205892223ccc6ea21b7b8a37248b44d9
+      - if: steps.misans-cache.outputs.cache-hit != 'true'
+        run: npm run fonts
+      - run: node --input-type=module -e "import { checkFont } from './tools/fonts.mjs'; await checkFont();"
+      - uses: actions/cache/save@v5
+        if: steps.misans-cache.outputs.cache-hit != 'true'
+        with:
+          path: build/fonts/MiSansVF.ttf
+          enableCrossOsArchive: true
+          key: dispatchdock-misans-v4.003-5daf8d5447bfd423cfdec94a0e07c53b205892223ccc6ea21b7b8a37248b44d9
+      - name: Verify release tag
+        if: github.event_name == 'release'
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: node --input-type=module -e "import fs from 'node:fs'; const v=JSON.parse(fs.readFileSync('package.json','utf8')).version; if(process.env.RELEASE_TAG!=='v'+v) throw Error('Release tag does not match package.json');"
+      - name: Package, sign and notarize
+        run: node tools/package-macos.mjs --arm64
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - name: Verify signatures and tickets
+        run: node tools/verify-macos-signing.mjs
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - run: npm run verify:packaged
+      - name: Record signing mode
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+        run: node --input-type=module -e "import fs from 'node:fs'; fs.writeFileSync('release/signing.json',JSON.stringify({signed:Boolean(process.env.CSC_LINK?.trim())}));"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: DispatchDock-mac-arm64
+          path: |
+            release/DispatchDock-*-mac-arm64.dmg
+            release/DispatchDock-*-mac-arm64.zip
+            release/signing.json
+          if-no-files-found: error
+  upload:
+    if: github.event_name == 'release'
+    needs: macos
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v8
+        with:
+          name: DispatchDock-mac-arm64
+          path: release
+      - run: node tools/upload-macos-release.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}

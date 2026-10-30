@@ -14,38 +14,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-14]
+        os: [windows-latest, macos-15]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run verify
-
-  macos-release:
-    needs: verify
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npm run fonts
-      - run: npm run verify:settings
-      # 只使用临时签名，不访问发布证书或公证密钥；产物供人工验收。
-      - run: npm run dist -- --mac --arm64 --ad-hoc
-      - name: Verify the native-architecture packaged app
-        if: runner.arch == 'ARM64'
-        run: npm run verify:packaged
-      - uses: actions/upload-artifact@v4
-        with:
-          name: DispatchDock-mac-arm64
-          path: |
-            release/DispatchDock-*-mac-arm64.dmg
-            release/DispatchDock-*-mac-arm64.zip
-          if-no-files-found: error

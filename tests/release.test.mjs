@@ -95,7 +95,7 @@ test('ZIP 支持中文名称、空文件并可重复生成', t => {
 });
 test('dist 字体缺失或哈希不符时在构建前失败并提示准备字体', t => {
   const s = fixture(t);
-  for (const name of ['dist.mjs', 'fonts.mjs']) s.put(`tools/${name}`, readFileSync(path.resolve('tools', name)));
+  for (const name of ['dist.mjs', 'fonts.mjs', 'package-macos.mjs']) s.put(`tools/${name}`, readFileSync(path.resolve('tools', name)));
   for (const invalid of [null, '错误字体']) {
     if (invalid) s.put('build/fonts/MiSansVF.ttf', invalid);
     const result = spawnSync(process.execPath, ['tools/dist.mjs'], { cwd: s.root, encoding: 'utf8', windowsHide: true, shell: false });

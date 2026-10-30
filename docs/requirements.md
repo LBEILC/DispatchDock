@@ -17,7 +17,7 @@
 |---|---|
 | 派活方（宿主） | Claude Code（含 Claude 桌面端的 Code 页）、Devin |
 | 干活方 | Codex CLI |
-| 平台 | Windows 10/11（实现上不写死 Windows） |
+| 平台 | Windows 10/11；macOS Apple Silicon（0.1.10 起，外部贡献）。实现上不写死某个系统 |
 
 ### 2.1 技能
 
@@ -72,7 +72,7 @@
 ### 2.6 v0.2 再做
 
 - 清单轮转与清理。
-- macOS / Linux。
+- Linux。
 
 ### 2.7 不做
 

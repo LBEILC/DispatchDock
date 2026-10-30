@@ -17,20 +17,21 @@ export function distributionOptions(args, host = process.platform) {
 
 async function distribute() {
   const options = distributionOptions(process.argv.slice(2));
+  if (options.platform === 'mac') {
+    const { packageMac } = await import('./package-macos.mjs');
+    return packageMac(options);
+  }
   try { await checkFont(); }
   catch { throw Error('MiSans 字体缺失或 SHA-256 不符，请运行 npm run fonts。'); }
-  // Windows 延续现有不签名行为；macOS 默认允许使用发行者自己的签名、公证配置。
-  if (options.platform === 'win' || options.adHoc) process.env.CSC_IDENTITY_AUTO_DISCOVERY = 'false';
+  process.env.CSC_IDENTITY_AUTO_DISCOVERY = 'false';
   await import('./build.mjs');
   const { build, Platform, Arch } = await import('electron-builder');
   const platform = options.platform === 'mac' ? Platform.MAC : Platform.WINDOWS;
   const formats = options.unpacked ? ['dir'] : options.platform === 'mac' ? ['dmg', 'zip'] : ['nsis'];
-  const config = options.adHoc
-    ? { extends: './electron-builder.config.cjs', mac: { identity: '-', hardenedRuntime: false, notarize: false } }
-    : 'electron-builder.config.cjs';
+  const config = 'electron-builder.config.cjs';
   // 构建命令只生成本地产物，发布由维护者另行决定。
   await build({ targets: platform.createTarget(formats, ...options.architectures.map(arch => Arch[arch])), config, publish: 'never' });
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  distribute().catch(error => { console.error(error.message); process.exitCode = 1; });
+  distribute().catch(error => { console.error(error.message); process.exit(1); });
 }
