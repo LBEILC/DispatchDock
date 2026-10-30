@@ -12,6 +12,7 @@ import { printCompletion } from './completion.mjs';
 import { waitForTask } from './wait.mjs';
 import { stopTask } from './stop.mjs';
 import { killProcessTree } from './process.mjs';
+import { canonicalPath } from './paths.mjs';
 
 export async function run({ adapter, scriptPath, args = process.argv.slice(2), env = process.env, root = process.cwd() }) {
   if (args[0] === '--stop') {
@@ -72,7 +73,7 @@ export async function run({ adapter, scriptPath, args = process.argv.slice(2), e
     announce(fallbackMessage(result.reason, app));
   }
   const detection = await adapter.detect({ env, settings });
-  registry({ event: 'start', id, repo: root, name: paths.name, spec: details.spec ? relative(root, resolvePath(root, details.spec)).replaceAll('\\', '/') : null,
+  registry({ event: 'start', id, repo: root, name: paths.name, spec: details.spec ? relative(canonicalPath(root), canonicalPath(resolvePath(root, details.spec))).replaceAll('\\', '/') : null,
     title: details.title, role: details.role?.name ?? null, pid: process.pid, started,
     progress: paths.progress, report: paths.report, raw: paths.raw, model: settings.model, effort: settings.effort, tier: settings.tier,
     agent: adapter.id, agentVersion: detection.version, sandbox: settings.sandbox, events: paths.events,

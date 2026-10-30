@@ -13,6 +13,12 @@ module.exports = {
     '!node_modules/**/*',
   ],
   win: { target: [{ target: 'nsis', arch: ['x64'] }], icon: 'build/icons/app.ico', signtoolOptions: { sign: async () => {} } },
+  mac: {
+    target: [{ target: 'dmg', arch: ['arm64'] }, { target: 'zip', arch: ['arm64'] }],
+    icon: 'build/icons/app.icns',
+    category: 'public.app-category.developer-tools',
+    artifactName: 'DispatchDock-${version}-mac-${arch}.${ext}',
+  },
   nsis: {
     oneClick: false, perMachine: false, allowElevation: false,
     allowToChangeInstallationDirectory: true, packElevateHelper: false,

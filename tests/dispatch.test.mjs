@@ -66,7 +66,7 @@ test('端到端：参数完整、清单兼容、事件顺序、原始日志和�
   assert.equal(end.id, start.id); assert.equal(spawned.id, start.id); assert.equal(end.exit, 0);
   assert.equal(fs.readFileSync(start.report, 'utf8'), 'OK\n');
   const echo = JSON.parse(fs.readFileSync(s.env.FAKE_ECHO, 'utf8'));
-  assert.deepEqual(echo.args, ['exec', '--json', '-C', s.root, '-s', 'workspace-write', '-o', start.report, '-']);
+  assert.deepEqual(echo.args, ['exec', '--json', '-C', fs.realpathSync(s.root), '-s', 'workspace-write', '-o', start.report, '-']);
   assert.equal(echo.prompt, '执行中不要弹出让用户选择或确认的提示。小的不一致（例如工具、浏览器的名字和任务说明写法不同，但显然是同一个东西）自己判断后继续，在汇报里写明；只有真正必须用户决定的事（付款、对外发布、登录、验证码、改账号设置等）才停下：直接结束本轮，在汇报里说明原因，不要弹窗等用户选。\n任务：\n只回复 OK');
   const events = jsonl(start.events);
   events.forEach((e, n) => { assert.equal(e.seq, n + 1); assert.equal(e.v, 1); assert.ok(e.at >= start.started); });
@@ -93,6 +93,21 @@ test('固定进度标准答案：与定稿协议逐行一致', t => {
   const normalize = text => text.replace(/\[\d{2}:\d{2}:\d{2}\] /g, '').replace(/  \d{4}\/.* ===\n/, '  <时间> ===\n')
     .replace(/用时 [\d.]+ 分钟，汇报在 .* ===/, '用时 <分钟> 分钟，汇报在 <路径> ===');
   assert.equal(normalize(current), fs.readFileSync(fixture('expected-progress.txt'), 'utf8').replaceAll('\r\n', '\n'));
+});
+
+test('任务说明经仓库符号链接传入时仍记录仓库内相对路径', { skip: process.platform === 'win32' }, t => {
+  const s = setup(t), alias = path.join(s.base, '仓库 别名');
+  fs.symlinkSync(s.root, alias, 'dir');
+  fs.mkdirSync(path.join(s.root, 'docs'));
+  fs.writeFileSync(path.join(s.root, 'docs/任务.md'), '隔离任务');
+  const result = spawnSync(process.execPath, [entry, path.join(alias, 'docs/任务.md')], {
+    cwd: s.root, env: s.env, encoding: 'utf8', timeout: 15000, windowsHide: true, shell: false,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(jsonl(path.join(s.home, 'runs.jsonl'))[0].spec, 'docs/任务.md');
+  // 新增文件尚不存在时也应先解析已存在的父目录。
+  const events = mapLine(JSON.stringify({ type: 'item.completed', item: { type: 'file_change', changes: [{ kind: 'add', path: path.join(alias, 'src/new.ts') }] } }), { root: fs.realpathSync(s.root) });
+  assert.equal(events[0].files[0].path, 'src/new.ts');
 });
 
 test('配置优先级：命令行 > 环境变量 > 文件 > 默认；null 不传模型参数', t => {
@@ -226,7 +241,7 @@ test('npm cmd 包装解析为 Node 入口，检测版本且没有 shell', t => {
   fs.writeFileSync(path.join(wrapper, 'codex.cmd'), '@echo off\n"%_prog%" "%dp0%\\codex.js" %*\n');
   assert.deepEqual(resolveLauncher({ PATH: wrapper }, 'win32'), { executable: process.execPath, args: [path.join(wrapper, 'codex.js')] });
   assert.equal(codex.detect({ env: s.env }).version, 'codex-cli test-fixture');
-  assert.equal(codex.detect({ env: { PATH: '' } }).installed, false);
+  assert.equal(codex.detect({ env: { PATH: '', HOME: s.base }, launcherOptions: { systemDirectories: [], runtimePath: path.join(s.base, 'missing/node') } }).installed, false);
   fs.writeFileSync(path.join(wrapper, 'codex.cmd'), '@echo unsupported');
   assert.throws(() => resolveLauncher({ PATH: wrapper }, 'win32'), /无法解析/);
 });
@@ -284,6 +299,7 @@ test('清单不能写入时任务照常完成；找不到 agent 时记录错误�
   const s = setup(t), blocked = path.join(s.base, '不能作为目录'); fs.writeFileSync(blocked, '占位');
   assert.doesNotThrow(() => registryWriter(blocked)({ event: 'start' }));
   assert.equal(s.invoke([], { CODEX_DISPATCH_HOME: blocked }).status, 0);
+  s.config({ v: 1, agents: { codex: { path: path.join(s.base, 'missing-codex') } } });
   const result = s.invoke([], { CODEX_DISPATCH_TEST_AGENT: '', PATH: '', Path: '' });
   assert.equal(result.status, 1, result.stderr);
   const rows = jsonl(path.join(s.home, 'runs.jsonl'));

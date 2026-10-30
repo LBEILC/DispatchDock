@@ -17,7 +17,7 @@
 - **派活**：两个技能，装进派活的 agent 里，告诉它怎么派活、怎么看进度、怎么收汇报和验收。
 - **看活**：一个桌面软件，所有派出去的任务在一个窗口里看：实时进展、汇报、改了哪些文件，可以随时停止。
 
-两部分可以分开用。只装技能也能工作，进度在一个只读的终端窗口里看。
+两部分可以分开用。只装技能也能工作，Windows 和 macOS 都会自动打开只读进度窗口；开着监控软件时默认在软件里看。
 
 v0.1 支持：
 
@@ -25,7 +25,7 @@ v0.1 支持：
 |---|---|
 | 派活方 | Claude Code（含 Claude 桌面端的 Code 页）、Devin |
 | 干活方 | Codex CLI |
-| 系统 | Windows 10 / 11 |
+| 系统 | Windows 10 / 11、macOS（主要支持 Apple Silicon，Intel 可选构建） |
 
 ## 两个技能
 
@@ -55,8 +55,8 @@ v0.1 支持：
 
 ### 方式一：装软件（推荐）
 
-1. 在 [Releases](https://github.com/LBEILC/DispatchDock/releases) 下载安装包（`.exe`），运行。
-2. 安装包没有代码签名。Windows 可能会弹出"Windows 已保护你的电脑"：点"更多信息"，再点"仍要运行"。
+1. 在 [Releases](https://github.com/LBEILC/DispatchDock/releases) 下载对应系统的安装包：Windows 用 `.exe`；macOS 用 `.dmg`，Apple Silicon 选 `arm64`、Intel 选 `x64`，打开后拖到 Applications。
+2. 未签名的 Windows 安装包可能会弹出"Windows 已保护你的电脑"：点"更多信息"，再点"仍要运行"。macOS 发行包是否经过签名和公证，以对应 Release 的说明为准；本地临时签名构建不包含 Apple 公证。
 3. 第一次打开时有一个引导：检测本机的派活方和 Codex，安装技能，设置默认值。每一步都能跳过，以后在"连接"和"设置"页里改。
 
 ### 方式二：只装技能
@@ -83,6 +83,8 @@ v0.1 支持：
 
 模型会用 `codex-dispatch` 在后台派发，告诉你记录名和去哪里看进度。Codex 做完后，它读汇报、看提交、跑验证，再用白话告诉你结果。
 
+macOS 的独立进度窗口使用系统 Terminal，关闭它不会停止任务。也可以在终端运行 `node "<技能目录>/codex-watch.mjs" "<仓库目录>"` 手动查看最近的进度。从 Finder 打开软件时会补充查找常见的 Homebrew、npm 和 Node 版本管理器安装位置；自定义位置仍可在连接页手动选择 Codex 可执行文件，或在配置里填写其绝对路径。
+
 想让模型按"设计负责人 + Codex 执行"的方式长期合作，在项目里说"用 dual-role-workflow 建立分工"。它会建好 `AGENTS.md`、角色文档和任务说明目录。
 
 ### 默认配置
@@ -100,7 +102,7 @@ node <codex-dispatch 技能目录>/codex-task.mjs --config
 技能和软件之间不走网络，只通过本机的几个文件通信：
 
 - 每个任务的记录在仓库的 `.codex-runs/` 下：汇报、精简进度、结构化事件、原始输出。
-- 所有任务的清单在 `%APPDATA%\codex-dispatch\runs.jsonl`。
+- 所有任务的清单在 Windows 的 `%APPDATA%\codex-dispatch\runs.jsonl`，macOS 的 `~/.config/codex-dispatch/runs.jsonl`（设置了 `XDG_CONFIG_HOME` 时跟随它）。
 
 格式写在 [`docs/protocol.md`](docs/protocol.md)。别的工具想读这些任务、或者想接一个新的干活方，照着它写就行；适配器的写法见 [`skills/codex-dispatch/adapters/README.md`](skills/codex-dispatch/adapters/README.md)。
 
@@ -116,8 +118,21 @@ npm run fonts      # 从官方下载页获取 MiSans 字体（不进仓库）
 npm run demo       # 用演示数据启动，不碰你真实的任务
 npm run verify     # 测试和类型检查
 npm run verify:task-list # 合成任务的列表交互检查、截图和性能采样，不读取真实任务
+npm run verify:settings  # 合成长模型名的引导页、设置页布局检查
 npm run dist       # 打安装包
 ```
+
+macOS 打包需要在 Mac 上运行；本地构建使用 Command Line Tools，无需安装完整 Xcode。默认生成 Apple Silicon 原生 `arm64` 的 DMG、ZIP，不依赖 Rosetta；Intel 版本需要显式选择：
+
+```bash
+npm run dist -- --mac --arm64 --ad-hoc   # 本机测试，临时签名，不公证
+npm run verify:packaged                # 隔离演示数据验收本机架构的打包程序
+npm run dist -- --mac                  # arm64，使用发行者的签名配置
+npm run dist -- --mac --x64 --ad-hoc    # 可选 Intel 兼容构建
+npm run dist -- --win --x64             # Windows 安装包
+```
+
+`--dir` 只生成解包后的程序目录。临时签名产物适合开发验证；面向用户发布时应按 [electron-builder 的 macOS 签名说明](https://www.electron.build/v26/docs/features/code-signing/code-signing-mac/)配置 Developer ID 和公证凭据。构建命令不会上传或发布产物。GitHub Actions 在 macOS 和 Windows 上运行验证并上传 macOS 构建产物，正式 Release 由维护者决定。
 
 这个项目本身就是用 `dual-role-workflow` 做的：分工写在 [`AGENTS.md`](AGENTS.md) 和 [`docs/roles/`](docs/roles/)，界面规范在 [`docs/design.md`](docs/design.md)，界面稿在 [`app/design/`](app/design/)。
 

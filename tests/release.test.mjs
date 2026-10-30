@@ -7,6 +7,8 @@ import { spawnSync } from 'node:child_process';
 import { inflateRawSync, crc32 } from 'node:zlib';
 import { packSkills, zip } from '../tools/pack-skills.mjs';
 import { exportPublic } from '../tools/export-public.mjs';
+import { distributionOptions } from '../tools/dist.mjs';
+import { icns, macSizes } from '../tools/icons.mjs';
 
 function fixture(t) {
   const base = mkdtempSync(path.join(tmpdir(), 'dispatchdock-release-'));
@@ -76,7 +78,7 @@ test('技能 ZIP 解压后无需依赖即可 --yes 安装并 --status 确认两�
   assert.ok(names.every(name => /^(skills\/|installer\/|package.json$|LICENSE$|THIRD_PARTY_NOTICES.md$|README(?:.en)?.md$)/.test(name)));
   const env = { ...process.env, CODEX_DISPATCH_HOME: path.join(s.base, 'dispatch'), USERPROFILE: path.join(s.base, 'user'), HOME: path.join(s.base, 'user'),
     APPDATA: path.join(s.base, 'appdata'), CLAUDE_CONFIG_DIR: path.join(s.base, 'claude'), CODEX_HOME: path.join(s.base, 'codex'), XDG_CONFIG_HOME: path.join(s.base, 'xdg') };
-  for (const dir of [env.CLAUDE_CONFIG_DIR, path.join(env.APPDATA, 'devin'), path.join(env.XDG_CONFIG_HOME, 'devin')]) mkdirSync(dir, { recursive: true });
+  for (const dir of [env.CLAUDE_CONFIG_DIR, path.join(env.APPDATA, 'devin'), path.join(env.HOME, '.config', 'devin')]) mkdirSync(dir, { recursive: true });
   const run = args => { const r = spawnSync(process.execPath, ['installer/install.mjs', ...args], { cwd: unpacked, env, encoding: 'utf8', shell: false, windowsHide: true, timeout: 20000 }); assert.equal(r.status, 0, r.stderr); return r.stdout; };
   run(['--yes']); const status = run(['--status']);
   // 版本号取 package.json，升版本时不用改测试
@@ -100,4 +102,28 @@ test('dist 字体缺失或哈希不符时在构建前失败并提示准备字体
     assert.equal(result.status, 1); assert.match(result.stderr, /npm run fonts/);
     assert.doesNotMatch(result.stderr, /ERR_MODULE_NOT_FOUND/);
   }
+});
+test('打包按宿主选择平台，保留 Windows 安装包并支持两种 Mac 架构', () => {
+  assert.deepEqual(distributionOptions([], 'win32'), { platform: 'win', architectures: ['x64'], unpacked: false, adHoc: false });
+  assert.deepEqual(distributionOptions([], 'darwin'), { platform: 'mac', architectures: ['arm64'], unpacked: false, adHoc: false });
+  assert.deepEqual(distributionOptions(['--mac', '--x64'], 'darwin'), { platform: 'mac', architectures: ['x64'], unpacked: false, adHoc: false });
+  assert.deepEqual(distributionOptions(['--mac', '--arm64', '--dir', '--ad-hoc'], 'darwin'), { platform: 'mac', architectures: ['arm64'], unpacked: true, adHoc: true });
+  assert.deepEqual(distributionOptions(['--win'], 'darwin'), { platform: 'win', architectures: ['x64'], unpacked: false, adHoc: false });
+  assert.throws(() => distributionOptions(['--mac'], 'win32'), /macOS 上构建/);
+  assert.throws(() => distributionOptions(['--mac', '--win'], 'darwin'), /一次只构建一个平台/);
+  assert.throws(() => distributionOptions(['--win', '--arm64'], 'win32'), /只支持 --x64/);
+  assert.throws(() => distributionOptions(['--ad-hoc'], 'win32'), /只用于 macOS/);
+  assert.throws(() => distributionOptions(['--publish'], 'darwin'), /未知打包参数/);
+});
+test('ICNS 用大端长度保存独立的 PNG 图标块，覆盖普通与 Retina 尺寸', () => {
+  const images = macSizes.map(size => ({ size, png: Buffer.from(`PNG fixture ${size}`) }));
+  const bytes = icns(images), types = ['icp4', 'icp5', 'icp6', 'ic07', 'ic08', 'ic09', 'ic10'];
+  assert.equal(bytes.toString('ascii', 0, 4), 'icns'); assert.equal(bytes.readUInt32BE(4), bytes.length);
+  let at = 8;
+  for (const [index, image] of images.entries()) {
+    assert.equal(bytes.toString('ascii', at, at + 4), types[index]);
+    const length = bytes.readUInt32BE(at + 4); assert.equal(length, image.png.length + 8);
+    assert.deepEqual(bytes.subarray(at + 8, at + length), image.png); at += length;
+  }
+  assert.equal(at, bytes.length);
 });

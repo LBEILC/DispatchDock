@@ -30,7 +30,9 @@ export async function capturePackaged(win: BrowserWindow, out: string) {
     await wait('!!document.querySelector("[data-operation=reinstall][data-host=claude-code]")');
     await click('[data-operation=reinstall][data-host=claude-code]');
     await wait('document.querySelector("[data-host-card=claude-code] .note").textContent.includes("已安装 2 个")');
-    const hosts = [path.join(process.env.CLAUDE_CONFIG_DIR!, 'skills'), path.join(process.env.APPDATA!, 'devin', 'skills')];
+    const hosts = [path.join(process.env.CLAUDE_CONFIG_DIR!, 'skills'), process.platform === 'win32'
+        ? path.join(process.env.APPDATA!, 'devin', 'skills')
+        : path.join(process.env.HOME!, '.config', 'devin', 'skills')];
     const installed = [];
     for (const host of hosts) for (const skill of ['codex-dispatch', 'dual-role-workflow']) {
         const record = JSON.parse(await readFile(path.join(host, skill, '.dispatchdock.json'), 'utf8'));
@@ -57,7 +59,17 @@ export async function capturePackaged(win: BrowserWindow, out: string) {
     await new Promise(resolve => setTimeout(resolve, 400));
     await writeFile(path.join(out, 'packaged.png'), (await win.webContents.capturePage()).toPNG());
     const fontHash = createHash('sha256').update(await readFile(path.join(__dirname, 'fonts/MiSansVF.ttf'))).digest('hex');
-    const evidence = { packaged: app.isPackaged, version: app.getVersion(), tasks: 10, wizardInstall: true, connectionReinstall: true, installed, fonts, fontHash };
+    let windowLifecycle = false;
+    if (process.platform === 'darwin') {
+        win.close();
+        assert.equal(win.isDestroyed(), false, 'macOS 关闭窗口后保留监控');
+        assert.equal(win.isVisible(), false, 'macOS 关闭窗口后隐藏');
+        app.emit('activate');
+        assert.equal(win.isVisible(), true, 'Dock 激活恢复同一窗口');
+        win.hide();
+        windowLifecycle = true;
+    }
+    const evidence = { packaged: app.isPackaged, platform: process.platform, arch: process.arch, version: app.getVersion(), tasks: 10, wizardInstall: true, connectionReinstall: true, windowLifecycle, installed, fonts, fontHash };
     await writeFile(path.join(out, 'packaged.json'), JSON.stringify(evidence, null, 2));
     console.log(JSON.stringify(evidence, null, 2));
 }

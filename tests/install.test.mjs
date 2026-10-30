@@ -584,6 +584,17 @@ test('指定入口优先于 PATH：js/mjs/cjs、exe、cmd/bat 和不存在的路
   assert.throws(() => resolveLauncher({}, 'win32', join(s.base, 'missing.exe')), /找不到 Codex CLI。确认 codex --version 能运行/);
 });
 
+test('macOS npm 的 codex 符号链接使用当前 Node，不依赖 PATH 中的 node', { skip: process.platform === 'win32' }, t => {
+  const s = setup(t), entry = join(s.base, '真实 入口.mjs'), link = join(s.base, 'codex');
+  write(entry, "console.log('codex-cli fake-symlink');");
+  fs.symlinkSync(entry, link);
+  const launcher = resolveLauncher({ PATH: s.base }, 'darwin');
+  assert.deepEqual(launcher, { executable: process.execPath, args: [fs.realpathSync(entry)] });
+  const detected = codex.detect({ env: { ...s.env, PATH: '' }, settings: { path: link } });
+  assert.equal(detected.installed, true);
+  assert.equal(detected.version, 'codex-cli fake-symlink');
+});
+
 test('宿主路径注入、显式指定未安装宿主、仅装工作流提示依赖、最小 TOML 解析', async t => {
   const s = setup(t);
   assert.equal(detectHosts(s.options)[0].root, join(s.env.CLAUDE_CONFIG_DIR, 'skills'));
@@ -595,6 +606,29 @@ test('宿主路径注入、显式指定未安装宿主、仅装工作流提示�
   assert.equal(readCodexConfig(s.env), null);
   write(join(s.env.CODEX_HOME, 'config.toml'), 'model = "示例模型" # 注释\nmodel_reasoning_effort = \'high\'\nservice_tier = "example"\n[profile]\nmodel = "忽略"\n');
   assert.deepEqual(readCodexConfig(s.env).values, { model: '示例模型', model_reasoning_effort: 'high', service_tier: 'example' });
+});
+
+test('macOS 宿主目录检测、隔离安装、派发及回退', t => {
+  const s = setup(t), options = { env: s.env, platform: 'darwin' };
+  fs.mkdirSync(join(s.env.HOME, '.config/devin'), { recursive: true });
+  const hosts = detectHosts(options);
+  assert.equal(hosts[0].root, join(s.env.CLAUDE_CONFIG_DIR, 'skills'));
+  assert.equal(hosts[1].root, join(s.env.HOME, '.config/devin/skills'));
+  assert.deepEqual(hosts.map(h => h.detected), [true, true]);
+  const result = executePlan(createPlan(options), options);
+  assert.equal(result.changed.length, 4);
+  for (const h of hosts) {
+    const target = join(h.root, 'codex-dispatch');
+    assert.equal(installationStatus(target, h.host, 'codex-dispatch').state, 'owned');
+    const fake = join(s.base, '假 agent.mjs');
+    fs.copyFileSync(join(project, 'tests/fixtures/fake-agent.txt'), fake);
+    Object.assign(s.env, { CODEX_NO_WATCH: '1', FAKE_FIXTURES: '[]', FAKE_ECHO: join(s.base, '参数.json') });
+    writeConfig(s.home, { path: fake });
+    const dispatched = s.cli(['隔离任务', '--host', h.host], join(target, 'codex-task.mjs'));
+    assert.equal(dispatched.status, 0, dispatched.stderr);
+  }
+  rollback(options);
+  for (const h of hosts) for (const skill of ['codex-dispatch', 'dual-role-workflow']) assert.equal(fs.existsSync(join(h.root, skill)), false);
 });
 test('清单 spec 和进度文件路径统一为 /，无效配置提示文案及错误前缀完整', t => {
   const s = setup(t), fake = join(s.base, '假 agent.mjs');

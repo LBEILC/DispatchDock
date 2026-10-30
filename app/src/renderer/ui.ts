@@ -11,7 +11,7 @@ export function menu(anchor: HTMLElement, items: {
     const panel = document.createElement('div');
     panel.className = 'ctx scroll';
     panel.setAttribute('role', select ? 'listbox' : 'menu');
-    panel.innerHTML = items.map((i, n) => `${i.separator ? '<hr>' : ''}<button role="${select ? 'option' : 'menuitem'}" data-option="${n}" ${i.disabled ? 'disabled' : ''}>${esc(i.label)}</button>`).join('');
+    panel.innerHTML = items.map((i, n) => `${i.separator ? '<hr>' : ''}<button role="${select ? 'option' : 'menuitem'}" data-option="${n}" ${select ? `title="${esc(i.label)}"` : ''} ${i.disabled ? 'disabled' : ''}>${select ? `<span>${esc(i.label)}</span>` : esc(i.label)}</button>`).join('');
     document.body.append(panel);
     const r = anchor.getBoundingClientRect();
     panel.style.left = `${Math.max(8, Math.min(innerWidth - panel.offsetWidth - 8, r.left))}px`;

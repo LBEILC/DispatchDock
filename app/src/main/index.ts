@@ -1,10 +1,10 @@
-import { app, BrowserWindow, ipcMain, nativeTheme, Notification, dialog, shell, clipboard, screen } from 'electron';
+import { app, BrowserWindow, ipcMain, nativeTheme, Notification, dialog, shell, clipboard, screen, Menu } from 'electron';
 import path from 'node:path';
 import os from 'node:os';
 import { Worker } from 'node:worker_threads';
 import { readFile, writeFile, mkdir, stat } from 'node:fs/promises';
 import { Registry, reportText } from './registry';
-import { windowsPlatform } from './platform';
+import { createPlatform } from './platform';
 import { readEvents, validCursor } from './events';
 import type { Task, Snapshot } from '../shared/types';
 import { c } from '../shared/copy';
@@ -43,7 +43,7 @@ async function cachedReport(file: string) {
     reportCache.set(file, { stamp, text });
     return text;
 }
-const platform = windowsPlatform(file => shell.openPath(file));
+const platform = createPlatform(file => shell.openPath(file));
 const snapshot = (select?: string): Snapshot => ({ tasks: registry?.tasks ?? [], theme: nativeTheme.shouldUseDarkColors ? 'dark' : 'light', version: app.getVersion(), select });
 const publish = (select?: string) => { if (win && !win.isDestroyed())
     win.webContents.send('snapshot', snapshot(select)); };
@@ -58,6 +58,10 @@ function finished(t: Task) {
     n.show();
 }
 app.whenReady().then(async () => {
+    if (process.platform === 'darwin') {
+        // 使用系统菜单角色，保留 Cmd+Q、复制粘贴和窗口快捷键的原生行为。
+        Menu.setApplicationMenu(Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' }]));
+    }
     await mkdir(data, { recursive: true });
     prefsWorker = new Worker(path.join(__dirname, 'preferences.mjs'), { workerData: { root: __dirname, data } });
     let requestId = 0;
@@ -88,7 +92,9 @@ app.whenReady().then(async () => {
     }
     catch { }
     const shotMode=!!(process.env.DISPATCHDOCK_SHOTS&&process.env.CODEX_DISPATCH_HOME);
-    win = new BrowserWindow({ ...bounds, minWidth: 960, minHeight: 600, show: false, icon: path.join(__dirname, 'icons', process.platform === 'win32' ? 'app.ico' : 'app-256.png'), title: c.app, autoHideMenuBar: true, titleBarStyle: 'hidden', titleBarOverlay: { color: token('bg'), symbolColor: token('text-2'), height: 44 }, backgroundColor: token('bg'), webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, offscreen:shotMode, backgroundThrottling:!shotMode } });
+    // TODO(design): macOS 暂用原生标题栏，避免系统按钮覆盖现有应用标题；后续可定稿融合布局。
+    const titlebar = process.platform === 'darwin' ? { titleBarStyle: 'default' as const } : { titleBarStyle: 'hidden' as const, titleBarOverlay: { color: token('bg'), symbolColor: token('text-2'), height: 44 } };
+    win = new BrowserWindow({ ...bounds, ...titlebar, minWidth: 960, minHeight: 600, show: false, icon: path.join(__dirname, 'icons', process.platform === 'win32' ? 'app.ico' : 'app-256.png'), title: c.app, autoHideMenuBar: true, backgroundColor: token('bg'), webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, offscreen:shotMode, backgroundThrottling:!shotMode } });
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     win.webContents.on('will-navigate', e => e.preventDefault());
     registry = new Registry(home, data, platform, () => publish(), finished, errors);
@@ -108,7 +114,7 @@ app.whenReady().then(async () => {
         if (payload !== undefined && (!payload || typeof payload !== 'object' || Array.isArray(payload))) throw Error('Invalid payload');
         if (action === 'openConfig') { await mkdir(home, { recursive: true }); const error = await shell.openPath(home); if (error) throw Error(error); return; }
         if (action === 'choosePath') {
-            const selected = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: [{ name: 'Codex', extensions: ['exe','cmd','js'] }] });
+            const selected = await dialog.showOpenDialog(win, { properties: ['openFile'], ...(process.platform === 'win32' ? { filters: [{ name: 'Codex', extensions: ['exe','cmd','js'] }] } : {}) });
             if (selected.canceled) return null;
             action = 'save'; payload = { key: 'path', value: selected.filePaths[0] };
         }
@@ -156,8 +162,13 @@ app.whenReady().then(async () => {
             throw Error('Invalid path');
         await platform.open(file);
     });
-    nativeTheme.on('updated', () => { win.setTitleBarOverlay({ color: token('bg'), symbolColor: token('text-2'), height: 44 }); win.setBackgroundColor(token('bg')); publish(); });
-    win.on('close', () => { if(!quitting)windowSave = writeFile(path.join(data, 'window.json'), JSON.stringify(win.getNormalBounds())).catch(errors); });
+    nativeTheme.on('updated', () => { if (process.platform !== 'darwin') win.setTitleBarOverlay({ color: token('bg'), symbolColor: token('text-2'), height: 44 }); win.setBackgroundColor(token('bg')); publish(); });
+    win.on('close', event => {
+        if (!quitting) {
+            windowSave = writeFile(path.join(data, 'window.json'), JSON.stringify(win.getNormalBounds())).catch(errors);
+            if (process.platform === 'darwin') { event.preventDefault(); win.hide(); }
+        }
+    });
     await win.loadFile(path.join(__dirname, 'index.html'));
     if (process.env.DISPATCHDOCK_SHOTS && process.env.CODEX_DISPATCH_HOME) {
         if (process.env.DISPATCHDOCK_PACKAGED_VERIFY) {
@@ -171,7 +182,8 @@ app.whenReady().then(async () => {
     }
     else win.show();
 }).catch(async (e) => { errors(e); await registry?.close(); app.exit(1); });
-app.on('window-all-closed', () => app.quit());
+app.on('activate', () => { if (win && !win.isDestroyed()) { win.show(); if (win.isMinimized()) win.restore(); win.focus(); } });
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('before-quit', e => {
     if(quitting)return;
     e.preventDefault();quitting=true;
