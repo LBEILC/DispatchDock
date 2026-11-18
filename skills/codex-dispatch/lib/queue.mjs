@@ -2,18 +2,24 @@ import { readFile, writeFile, rename, mkdir, open, unlink, lstat, readlink } fro
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { runProgram, checkEnvironment } from './program.mjs';
+import { runProgram, checkEnvironment, reviewEnvironment } from './program.mjs';
 import { processCreated, pidAlive } from './process.mjs';
 import { homeDirectory } from './config.mjs';
 import { registryWriter, recordPaths } from './records.mjs';
 import { progressHeader, progressFooter, formatProgress } from './progress.mjs';
 import { codex } from '../adapters/codex.mjs';
-import { validatePolicy, blockedPath, runCheck } from '../workers/workspace.mjs';
+import { validatePolicy, blockedPath, runCheck, within } from '../workers/workspace.mjs';
+import { validFile } from '../workers/workspace.mjs';
 
 const idPattern = /^[a-z][a-z0-9-]{0,63}$/;
 const hash = text => createHash('sha256').update(text).digest('hex');
 const json = async file => JSON.parse(await readFile(file, 'utf8'));
 const save = async (file, value) => { const temp = file + '.' + randomUUID() + '.tmp'; await writeFile(temp, JSON.stringify(value, null, 2)); await rename(temp, file); };
+const ownerAlive = async owner => {
+  if (!pidAlive(owner.pid)) return false;
+  const actual = await processCreated(owner.pid);
+  return actual === null || owner.created === null || actual === owner.created;
+};
 const schema = { type: 'object', properties: { decision: { type: 'string', enum: ['accept', 'rework', 'stop'] }, feedback: { type: 'string' } }, required: ['decision', 'feedback'], additionalProperties: false };
 
 export function validatePlan(plan) {
@@ -22,6 +28,8 @@ export function validatePlan(plan) {
   for (const task of plan.tasks) {
     if (!idPattern.test(task.id) || names.has(task.id) || typeof task.prompt !== 'string' || !task.prompt.trim() || typeof task.acceptance !== 'string' || !task.acceptance.trim()) throw Error('任务 ID、说明或验收条件无效');
     names.add(task.id); validatePolicy({ v: 1, files: task.files, checks: task.checks });
+    if (task.role !== undefined && !idPattern.test(task.role)) throw Error('任务角色必须是仓库中的角色文档名称');
+    if (task.contextFiles !== undefined && (!Array.isArray(task.contextFiles) || !task.contextFiles.every(validFile))) throw Error('contextFiles 必须是明确的仓库文件清单');
     if (!task.checks.length || new Set(task.checks.map(check => check.name)).size !== task.checks.length) throw Error('每项任务至少需要一项名称唯一的检查');
   }
   const limits = { maxMinutes: 480, maxAttempts: 3, maxRequests: 120, maxTokens: 600000, maxReviews: 30, attemptRequests: 12, attemptTokens: 100000, ...plan.limits };
@@ -38,7 +46,7 @@ async function workspaceSnapshot(root, env) {
   const result = await runProgram('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { root, env: checkEnvironment(env), maxOutput: 4 * 1024 * 1024 });
   if (result.code) throw Error('队列必须在可读取的 Git 仓库中执行');
   if (result.truncated) throw Error('仓库文件清单超过快照上限，不能在不完整证据上继续验收');
-  const files = [...new Set(result.stdout.split('\0').filter(file => file && !blockedPath(file)))];
+  const files = [...new Set(result.stdout.split('\0').filter(file => file && (!blockedPath(file) || /(^|\/)(AGENTS|CLAUDE)\.md$/i.test(file))))];
   const snapshot = {};
   for (const file of files) {
     const full = path.join(root, file);
@@ -57,15 +65,17 @@ async function reviewTask(root, task, checkResults, report, folder, supervisor, 
   const schemaFile = path.join(folder, 'review-schema.json'), verdictFile = path.join(folder, 'verdict.json');
   await save(schemaFile, schema);
   const settings = { sandbox: 'read-only', model: supervisor?.model ?? null, effort: supervisor?.effort ?? null, tier: null, path: supervisor?.path ?? null };
-  const detection = codex.detect({ env, settings });
+  const reviewEnv = reviewEnvironment(env);
+  const detection = codex.detect({ env: reviewEnv, settings });
   if (!detection.installed) throw Error(detection.error || '找不到 Codex 验收执行端');
   const prompt = `这是临时小任务。你在本项目中的角色是只读验收负责人。检查实际文件，不修改、提交或发布任何文件，不执行项目代码。任务：${task.prompt}\n验收条件：${task.acceptance}\n允许修改：${JSON.stringify(task.files)}\n独立检查结果：${JSON.stringify(checkResults)}\n下级汇报仅为线索，不代表通过：\n${report.slice(0, 32000)}\n请读取实际产物，判断是否完成任务和存在阻塞缺陷。只有验收条件满足且检查全通过才能 accept；可修复问题返回 rework 和具体证据；越权、范围冲突或无法自动判断返回 stop。最后只输出符合 schema 的 JSON。`;
-  const command = codex.command({ root, report: verdictFile, prompt, settings, detection, env });
+  const command = codex.command({ root, report: verdictFile, prompt, settings, detection, env: reviewEnv });
   command.args.splice(command.args.length - 1, 0, '--output-schema', schemaFile, '--ephemeral');
-  const reviewEnv = { ...env }; delete reviewEnv.DEEPSEEK_API_KEY;
   const result = await runProgram(command.executable, command.args, { root, env: reviewEnv, stdin: prompt, timeoutMs: Math.min(supervisor?.timeoutMs ?? 300000, 600000) });
-  await save(path.join(folder, 'review-result.json'), { code: result.code, timedOut: result.timedOut, stderr: result.stderr.slice(-8000) });
-  if (result.code) throw Error('Codex 验收未正常完成，队列停止，未把模型失败当作验收通过');
+  const redact = text => text.replace(/sk-[a-zA-Z0-9_-]+/g, '[redacted]');
+  const errors = result.stdout.split('\n').flatMap(line => codex.mapLine(line, { root })).filter(event => event.kind === 'error').map(event => redact(event.text));
+  await save(path.join(folder, 'review-result.json'), { code: result.code, timedOut: result.timedOut, stderr: redact(result.stderr.slice(-8000)), errors });
+  if (result.code) throw Error('Codex 验收未正常完成，队列停止，未把模型失败当作验收通过。' + (errors.at(-1)?.slice(0, 1000) ?? ''));
   const verdict = await json(verdictFile);
   if (!['accept', 'rework', 'stop'].includes(verdict.decision) || typeof verdict.feedback !== 'string') throw Error('Codex 验收返回无效判定');
   return verdict;
@@ -74,7 +84,7 @@ async function reviewTask(root, task, checkResults, report, folder, supervisor, 
 export async function runQueue({ plan: input, root, scriptPath, env = process.env, resume = false, reviewer = reviewTask } = {}) {
   const plan = validatePlan(input), digest = hash(JSON.stringify(plan));
   const runs = path.join(root, '.codex-runs'); await mkdir(runs, { recursive: true });
-  const stateFile = path.join(runs, plan.name + '.queue.json'), lockFile = path.join(runs, plan.name + '.queue.lock');
+  const stateFile = path.join(runs, plan.name + '.queue.json'), lockFile = path.join(runs, '.queue-workspace.lock');
   const created = await processCreated(process.pid);
   let lease;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -82,7 +92,8 @@ export async function runQueue({ plan: input, root, scriptPath, env = process.en
     catch (error) {
       if (error.code !== 'EEXIST') throw error;
       const owner = await json(lockFile);
-      if (pidAlive(owner.pid) && (owner.created === null || await processCreated(owner.pid) === owner.created)) throw Error('队列已在运行，不能重复启动');
+      if (await ownerAlive(owner)) throw Error('队列已在运行，不能重复启动');
+      if (owner.name !== plan.name) throw Error('该工作树有其他队列的中断现场，请先核对并恢复原队列');
       if (!resume) throw Error('队列留下了中断锁，请使用 --resume 核对并恢复');
       // 恢复操作也要互斥，不能让两个恢复者分别删掉对方新取得的锁。
       const recoveryFile = lockFile + '.recovery';
@@ -91,14 +102,14 @@ export async function runQueue({ plan: input, root, scriptPath, env = process.en
       catch (error) { if (error.code === 'EEXIST') throw Error('已有另一个恢复操作，或恢复锁需要人工核对'); throw error; }
       try {
         const latest = await json(lockFile);
-        if (pidAlive(latest.pid) && (latest.created === null || await processCreated(latest.pid) === latest.created)) throw Error('队列已经恢复运行');
+        if (await ownerAlive(latest)) throw Error('队列已经恢复运行');
         await unlink(lockFile); lease = await open(lockFile, 'wx');
       } finally { await recovery.close(); await unlink(recoveryFile); }
       break;
     }
   }
   if (!lease) throw Error('不能取得队列锁');
-  await lease.writeFile(JSON.stringify({ pid: process.pid, created })); await lease.close();
+  await lease.writeFile(JSON.stringify({ name: plan.name, pid: process.pid, created })); await lease.close();
   let paths, registry, id, state, exit = 1, sequence = 0;
   const emit = async event => {
     const record = { ...event, v: 1, seq: ++sequence, at: Date.now() };
@@ -124,6 +135,12 @@ export async function runQueue({ plan: input, root, scriptPath, env = process.en
     for (let index = 0; index < plan.tasks.length; index++) {
       const task = plan.tasks[index], item = state.tasks[index];
       if (['done', 'failed'].includes(item.status)) continue;
+      if (item.evidence) {
+        const evidence = path.resolve(root, item.evidence);
+        if (!within(path.join(runs, plan.name + '.queue'), evidence) || path.basename(evidence) !== 'workspace-before.json') throw Error('恢复的范围证据路径无效');
+        const changed = outsideChanges(await json(evidence), await workspaceSnapshot(root, env), task.files);
+        if (changed.length) throw Error('恢复前发现原尝试清单以外的改动，保留现场并停止：' + changed.join(', '));
+      } else if (!['pending', 'preparing'].includes(item.status)) throw Error('缺少未完成尝试的范围证据，不能自动建立新基线');
       if (item.status !== 'pending') item.feedback = `上次执行中断，保留实际文件，请核对后继续。\n${item.feedback}`;
       while (item.attempts < plan.limits.maxAttempts && item.status !== 'done') {
         const remaining = { requests: plan.limits.maxRequests - state.requests, tokens: plan.limits.maxTokens - state.tokens };
@@ -131,19 +148,22 @@ export async function runQueue({ plan: input, root, scriptPath, env = process.en
         const limits = { maxRequests: Math.min(plan.limits.attemptRequests, remaining.requests), maxTokens: Math.min(plan.limits.attemptTokens, remaining.tokens), maxMinutes: Math.max(1, Math.min(10, Math.ceil(timeLeft() / 60000))), maxToolCalls: 64 };
         // 启动前先持久化最坏用量；崩溃或用量未知时不退回额度。
         state.requests += limits.maxRequests; state.tokens += limits.maxTokens;
-        item.attempts++; item.status = 'running'; await save(stateFile, state);
+        item.attempts++; item.status = 'preparing'; delete item.evidence; await save(stateFile, state);
         const folder = path.join(runs, plan.name + '.queue', task.id, 'attempt-' + item.attempts); await mkdir(folder, { recursive: true });
         const policyFile = path.join(folder, 'policy.json'), ledgerFile = path.join(folder, 'worker-budget.json');
-        await save(policyFile, { v: 1, files: task.files, checks: task.checks, limits, ledger: path.relative(root, ledgerFile) });
+        await save(policyFile, { v: 1, files: task.files, checks: task.checks, limits, ledger: path.relative(root, ledgerFile), ...(task.contextFiles ? { readFiles: [...task.contextFiles, ...task.files, 'AGENTS.md', ...(task.role ? [`docs/roles/${task.role}.md`] : [])] } : {}) });
         await emit({ kind: 'plan', items: state.tasks.map(value => ({ text: value.id + ' · ' + value.status, done: value.status === 'done' })) });
         const before = await workspaceSnapshot(root, env);
+        const evidence = path.join(folder, 'workspace-before.json'); await save(evidence, before);
+        item.evidence = path.relative(root, evidence); item.status = 'running'; await save(stateFile, state);
         const attemptName = paths.name + '-' + task.id + '-' + item.attempts;
         const prompt = `${task.prompt}\n验收条件：${task.acceptance}\n允许修改的文件：${JSON.stringify(task.files)}\n上次检查或验收的返工意见：${item.feedback || '首次执行'}\n完成修改并运行授权检查；禁止提交、推送、发布或再次派发。`;
         const workerEnv = { ...env, CODEX_NO_WATCH: '1', CODEX_DISPATCH_NO_MANAGED: '1', DISPATCH_PARENT_ID: id }; delete workerEnv.CODEX_DRY_RUN;
-        const worker = await runProgram(process.execPath, [scriptPath, prompt, '--agent', 'deepseek', '--host', 'codex', '--model', plan.worker.model, '--sandbox', 'workspace-write', '--policy', policyFile, '--name', attemptName], { root, env: workerEnv, timeoutMs: Math.min(timeLeft(), 10 * 60000 + 10000) });
+        const worker = await runProgram(process.execPath, [scriptPath, prompt, '--agent', 'deepseek', '--host', 'codex', '--model', plan.worker.model, '--sandbox', 'workspace-write', '--policy', policyFile, '--name', attemptName, ...(task.role ? ['--role', task.role] : [])], { root, env: workerEnv, timeoutMs: Math.min(timeLeft(), 10 * 60000 + 10000) });
         let ledger;
         try { ledger = await json(ledgerFile); } catch { /* 缺失的用量保留全部预留，不假定零费用。 */ }
-        if (ledger?.complete && !ledger.uncertain && Number.isInteger(ledger.requests) && Number.isInteger(ledger.tokens)) { state.requests -= limits.maxRequests - Math.min(limits.maxRequests, ledger.requests); state.tokens -= limits.maxTokens - Math.min(limits.maxTokens, ledger.tokens); }
+        if (ledger?.complete && !ledger.uncertain && Number.isInteger(ledger.requests) && ledger.requests >= 0 && Number.isInteger(ledger.tokens) && ledger.tokens >= 0) { state.requests += ledger.requests - limits.maxRequests; state.tokens += ledger.tokens - limits.maxTokens; }
+        if (worker.code && /HTTP (401|402|403)\b/.test(worker.stdout)) { item.feedback = '接口凭据、权限或额度错误，停止自动重试'; item.status = 'blocked'; state.status = 'blocked'; await save(stateFile, state); break; }
         item.status = 'checking'; await save(stateFile, state);
         const changed = outsideChanges(before, await workspaceSnapshot(root, env), task.files);
         if (changed.length) { item.feedback = '出现允许范围之外的改动：' + changed.join(', '); item.status = 'blocked'; state.status = 'blocked'; break; }
@@ -193,7 +213,10 @@ export async function runQueue({ plan: input, root, scriptPath, env = process.en
 export async function queueCommand({ args, root, env, scriptPath }) {
   if (args[0] === '--queue-status') {
     if (args.length !== 2 || !idPattern.test(args[1])) throw Error('用法：--queue-status <队列名>');
-    console.log(JSON.stringify(await json(path.join(root, '.codex-runs', args[1] + '.queue.json')), null, 2)); return 0;
+    const state = await json(path.join(root, '.codex-runs', args[1] + '.queue.json'));
+    let runnerAlive = false;
+    try { const owner = await json(path.join(root, '.codex-runs', '.queue-workspace.lock')); runnerAlive = owner.name === args[1] && await ownerAlive(owner); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    console.log(JSON.stringify({ ...state, status: state.status === 'running' && !runnerAlive ? 'interrupted' : state.status, runnerAlive }, null, 2)); return 0;
   }
   if (!args[1] || args.slice(2).some(arg => arg !== '--resume')) throw Error('用法：--queue <计划.json> [--resume]');
   return runQueue({ plan: await json(path.resolve(root, args[1])), root, env, scriptPath, resume: args.includes('--resume') });

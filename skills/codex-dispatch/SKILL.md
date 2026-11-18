@@ -16,7 +16,9 @@ allowed-tools:
 
 ## 用法
 
-除默认 Codex CLI 外，派发入口支持 `--agent deepseek`（只读 API 执行端）或已配置的桥接执行端；`--host <标识>` 记录上级，`--parent <任务ID>` 关联父任务。非 Codex 执行端的运行契约、配置与权限边界见本技能的 `adapters/README.md`；内置 DeepSeek 需要环境变量 `DEEPSEEK_API_KEY` 和明确模型 ID，只能使用 `read-only`。以下 Codex 默认用法仍然有效，其他上级使用自己可用的进程工具启动脚本并读汇报验收。
+除默认 Codex CLI 外，入口支持 `--agent deepseek` 或已配置的桥接执行端；`--host` 记录上级，`--parent` 关联父任务。内置 DS 默认只读，明确授权修改时必须提供 `--sandbox workspace-write --policy <策略.json>`，列出允许文件与固定检查。接口需要环境变量 `DEEPSEEK_API_KEY` 和明确模型 ID，不把密钥写入任务或日志。契约见本技能的 `adapters/README.md`。
+
+需要上级 Codex 持续指挥 DS 时，先按已授权目标准备明确的队列计划：逐项写清 prompt、acceptance、files、checks，并设总时限、请求/token/验收次数和返工上限。用 `--queue <计划.json>` 启动；队列独立检查并调用只读 Codex 验收，失败后限次返工。用 `--queue-status` 查看，`--resume` 恢复同一计划；用输出的记录名 `--stop` 停止整棵当前进程树。不要用整夜无限循环替代验收，不自动扩大修改范围，完成后即停止。宿主进程必须保持存活；上级已有授权直接沿用。
 
 ```
 node "<技能目录>/codex-task.mjs" <任务说明文件 | "任务文字"> ["补充说明"] [选项]

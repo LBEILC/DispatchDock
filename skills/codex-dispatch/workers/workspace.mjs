@@ -1,4 +1,4 @@
-import { lstat, mkdir, realpath, rename, open, unlink } from 'node:fs/promises';
+import { lstat, mkdir, realpath, rename, open, unlink, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { runProgram, checkEnvironment } from '../lib/program.mjs';
@@ -13,6 +13,7 @@ export function validFile(file) {
 
 export function validatePolicy(policy) {
   if (!policy || policy.v !== 1 || !Array.isArray(policy.files) || !policy.files.length || !policy.files.every(validFile)) throw Error('可写策略必须列出明确的仓库内文件');
+  if (policy.readFiles !== undefined && (!Array.isArray(policy.readFiles) || !policy.readFiles.every(file => validFile(file) || file === 'AGENTS.md'))) throw Error('读取上下文必须是明确的普通仓库文件');
   if (!Array.isArray(policy.checks) || policy.checks.some(check => !check || !/^[a-z][a-z0-9-]*$/.test(check.name) || (check.executable !== '@node' && !path.isAbsolute(check.executable)) || /\.(cmd|bat|ps1)$/i.test(check.executable) || !Array.isArray(check.args) || !check.args.every(arg => typeof arg === 'string' && !arg.includes('\0')) || !Number.isInteger(check.timeoutMs) || check.timeoutMs < 100 || check.timeoutMs > 600000)) throw Error('检查命令必须为明确的可执行文件和参数数组');
   return policy;
 }
@@ -45,4 +46,14 @@ export async function writeTool(root, policy, args) {
 export async function runCheck(root, check, env = process.env) {
   const result = await runProgram(check.executable === '@node' ? process.execPath : check.executable, check.args, { root, env: checkEnvironment(env), timeoutMs: check.timeoutMs });
   return { name: check.name, ...result };
+}
+
+export async function replaceTool(root, policy, args) {
+  validatePolicy(policy); root = await realpath(root);
+  if (!args || !validFile(args.path) || !policy.files.some(file => key(file) === key(args.path)) || typeof args.old_text !== 'string' || !args.old_text || typeof args.new_text !== 'string') throw Error('替换需要授权文件和非空原文');
+  const target = path.resolve(root, args.path), actual = await realpath(target), info = await lstat(target);
+  if (!within(root, actual) || !info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.size > 256 * 1024) throw Error('替换目标不是允许的普通文件');
+  const text = await readFile(target, 'utf8'), index = text.indexOf(args.old_text);
+  if (index < 0 || text.indexOf(args.old_text, index + args.old_text.length) !== -1) throw Error('原文必须精确匹配一次，请重新读取后替换');
+  return writeTool(root, policy, { path: args.path, content: text.slice(0, index) + args.new_text + text.slice(index + args.old_text.length) });
 }

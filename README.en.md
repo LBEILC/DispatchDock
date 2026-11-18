@@ -103,7 +103,7 @@ With no arguments it shows the current values. Pass `model=<name>`, `effort=high
 
 ### Generic workers (CLI)
 
-Use `--host <supervisor-id> --agent <worker-id>` to dispatch across different agents; the default worker remains Codex CLI. An included read-only DeepSeek API worker can inspect repository files, and custom bridge workers can provide other runtimes. `--parent <task-id>` records a parent task. Skill installation in the Connections page is unchanged. See the [generic worker guide (Chinese)](docs/generic-workers.md) for the input/event contract, credentials, limits and managed execution requirements.
+Use `--host <supervisor-id> --agent <worker-id>` to dispatch across agents; the default remains Codex CLI. DeepSeek defaults to read-only and can edit explicitly allowed files under a supplied policy. `--queue` adds persistent tasks, independent checks, and Codex acceptance/rework; `--parent` records task relationships. Skill installation in the Connections page is unchanged. See the [generic worker guide](docs/generic-workers.md) and [night queue guide](docs/night-queue.md) for contracts, credentials, budgets and lifecycle requirements.
 
 The skills and the app never talk over the network. They share a few local files:
 

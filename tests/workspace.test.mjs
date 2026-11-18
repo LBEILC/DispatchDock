@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, link, stat, chmod } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { writeTool, validFile, runCheck } from '../skills/codex-dispatch/workers/workspace.mjs';
+import { writeTool, replaceTool, validFile, runCheck } from '../skills/codex-dispatch/workers/workspace.mjs';
+import { reviewEnvironment } from '../skills/codex-dispatch/lib/program.mjs';
 
 async function fixture(t) { const base = await mkdtemp(path.join(tmpdir(), 'dispatchdock-write-')); t.after(() => rm(base, { recursive: true, force: true, maxRetries: 5 })); const root = path.join(base, 'repo'); await mkdir(root); return { base, root }; }
 const policy = files => ({ v: 1, files, checks: [] });
@@ -29,4 +30,15 @@ test('授权检查通过参数数组运行，不继承任何 API 密钥', async 
   const { root } = await fixture(t);
   const result = await runCheck(root, { name: 'env', executable: process.execPath, args: ['-e', 'console.log(JSON.stringify({key:process.env.DEEPSEEK_API_KEY,arg:process.argv[1]}))', 'literal $(value)'], timeoutMs: 5000 }, { ...process.env, DEEPSEEK_API_KEY: 'fake-key' });
   assert.equal(result.code, 0); assert.deepEqual(JSON.parse(result.stdout), { arg: 'literal $(value)' });
+});
+test('精确替换只接受授权文件中的唯一原文', async t => {
+  const { root } = await fixture(t), p = policy(['file.txt']);
+  await writeFile(path.join(root, 'file.txt'), 'one\ntwo\none');
+  await assert.rejects(replaceTool(root, p, { path: 'file.txt', old_text: 'one', new_text: 'x' }), /精确匹配一次/);
+  await replaceTool(root, p, { path: 'file.txt', old_text: 'two', new_text: 'changed' });
+  assert.equal(await readFile(path.join(root, 'file.txt'), 'utf8'), 'one\nchanged\none');
+  await assert.rejects(replaceTool(root, p, { path: '../outside', old_text: 'one', new_text: 'x' }), /授权文件/);
+});
+test('验收环境按不区分大小写过滤 DS 凭据，保留 Codex 自己的授权', () => {
+  assert.deepEqual(reviewEnvironment({ DeepSeek_Api_Key: 'fake-one', DEEPSEEK_API_KEY: 'fake-two', OPENAI_API_KEY: 'fake-codex', PATH: 'runtime' }), { OPENAI_API_KEY: 'fake-codex', PATH: 'runtime' });
 });

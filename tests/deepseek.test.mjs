@@ -87,3 +87,16 @@ test('真实派发入口通过本机假 API 完成 DeepSeek 文件检查并记�
   assert.equal(await readFile(start.report, 'utf8'), '第一行：检查完成');
   assert.match(await readFile(start.events, 'utf8'), /read_file/);
 });
+test('可写任务的读取上下文拒绝未列出的普通文件，不把内容送给模型', async t => {
+  const f = await fixture(t); await writeFile(path.join(f.repo, 'unrelated.txt'), 'not-in-task-context');
+  const request = { ...f.request, settings: { ...f.request.settings, sandbox: 'workspace-write', policy: { v: 1, files: ['target.txt'], checks: [], readFiles: ['sample.txt'] } } };
+  let calls = 0;
+  await runDeepSeek(request, { env: f.env, emit() {}, fetcher: async (url, options) => {
+    const body = JSON.parse(options.body);
+    if (++calls === 1) return reply({ content: null, tool_calls: [{ id: 'read', type: 'function', function: { name: 'read_file', arguments: '{"path":"unrelated.txt","start_line":1,"line_count":1}' } }] }, 'tool_calls');
+    assert.match(body.messages.at(-1).content, /不在上级指定/);
+    assert.doesNotMatch(JSON.stringify(body.messages), /not-in-task-context/);
+    return reply({ content: '已停止无关读取。' });
+  } });
+  assert.equal(calls, 2);
+});

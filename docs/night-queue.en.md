@@ -11,6 +11,8 @@ The queue executes task cards in a preset, fixed order: DS edits the authorized 
 
 ## Plan file
 
+Tasks may also set `role` to a repository role document name, such as `engineering`, and `contextFiles` to an explicit list of readable task inputs. With `contextFiles`, the worker may read those files, its writable files, the root AGENTS.md, and its assigned role document; directory listings are filtered to that scope. This avoids unrelated repository exploration. Small edits can use an exact, unique text replacement instead of rewriting an entire file.
+
 ```json
 {
   "v": 1,
@@ -70,7 +72,7 @@ Queue subtasks run without independent handling; stopping the queue ends its cur
 `.codex-runs/<name>.queue.json` stores task state, attempt counts, usage, and the fixed plan hash. Each attempt's policy, DS usage, check results, and Codex verdict live in `<name>.queue/<task ID>/attempt-N/`. Keys never enter these files.
 
 - `--resume` restores the original plan only; after changing tasks, acceptance, or limits you must use a new queue name. Completed tasks do not call the model again.
-- The start lock checks PID and creation time to prevent two writers on one worktree; an interrupted lock can only be resumed explicitly. Unfinished file edits are kept and become the scene for the next attempt.
+- The lock belongs to the worktree, not the queue name: it checks the queue, PID and process creation time, so differently named queues cannot write the same worktree concurrently. Interrupted locks require explicit recovery. Before launching a worker, the controller atomically saves its scope baseline; recovery checks that evidence before creating another attempt, so unauthorized changes from an interrupted attempt do not silently become the new baseline. Authorized unfinished edits are preserved.
 - Deadlines, attempt counts, and consumption carry over from the original state and are not reset by a restart. A resume may re-execute an unfinished piece of work and does not promise exactly-once network calls.
 - Before each DS start, the worst-case budget reservation is persisted first. Unused allowance is refunded only when a complete, well-formed usage record is received; if the process is interrupted, the network result is unknown, or usage is missing, the full reservation is kept, so a crash cannot bypass the limits.
 - The request budget includes HTTP retries; before sending a request, DS reserves a conservative token estimate for the input and caps the output. Token accounting relies on server-reported numbers and is not a promise of a price in USD or CNY. `maxTokens` bounds DS only; Codex is bounded by `maxReviews`, the per-review timeout, and the overall queue time limit. No unified currency budget is implemented.

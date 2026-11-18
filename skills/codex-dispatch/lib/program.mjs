@@ -7,6 +7,10 @@ export function checkEnvironment(env = process.env) {
   return Object.fromEntries(Object.entries(env).filter(([key]) => allowed.test(key)));
 }
 
+export function reviewEnvironment(env = process.env) {
+  return Object.fromEntries(Object.entries(env).filter(([key]) => key.toLowerCase() !== 'deepseek_api_key'));
+}
+
 export function runProgram(executable, args, { root, env = process.env, stdin = '', timeoutMs = 60000, maxOutput = 65536, onLine = () => {} } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(executable, args, { cwd: root, env, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
