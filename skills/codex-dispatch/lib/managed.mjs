@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, openSyn
 import { join, isAbsolute } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { waitInterval } from './wait.mjs';
+import { validAgentId } from './options.mjs';
 
 function appName(value) {
   return typeof value === 'string' && value.trim() ? Array.from(value.trim()).slice(0, 40).join('') : 'DispatchDock';
@@ -37,7 +38,10 @@ export function validRequest(r) {
     && object(r.args) && typeof r.args.task === 'string' && !!r.args.task && typeof r.args.extra === 'string' && nullable(r.args.role) && nullable(r.args.spec)
     && object(r.settings) && ['model','effort','tier','path'].every(k => nullable(r.settings[k])) && typeof r.settings.sandbox === 'string'
     && (r.settings.path === null || isAbsolute(r.settings.path))
-    && object(r.dispatcher) && ['claude-code','devin','unknown'].includes(r.dispatcher.host) && nullable(r.dispatcher.session)
+    && (r.agent === undefined || validAgentId(r.agent))
+    && (r.parent === undefined || (typeof r.parent === 'string' && !!r.parent.trim() && r.parent.length <= 256 && !/[\x00-\x1f]/.test(r.parent)))
+    && (r.settings.args === undefined || (Array.isArray(r.settings.args) && r.settings.args.every(arg => typeof arg === 'string' && !arg.includes('\0'))))
+    && object(r.dispatcher) && validAgentId(r.dispatcher.host) && nullable(r.dispatcher.session)
     && object(r.env) && Object.entries(r.env).every(([key,value]) => environmentKeys.includes(key) && typeof value === 'string' && !value.includes('\0'));
 }
 export function existingPaths(root, name) {

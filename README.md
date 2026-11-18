@@ -99,6 +99,10 @@ node <codex-dispatch 技能目录>/codex-task.mjs --config
 
 ## 工作原理
 
+### 通用执行端（命令行）
+
+派发脚本可通过 `--host <上级标识> --agent <执行端标识>` 让不同 agent 分工；默认仍派给 Codex。内置只读 DeepSeek API 执行端，也可配置输出统一事件的自定义执行端。可用 `--parent <任务ID>` 关联父子任务。连接页的技能安装范围保持不变，详见 [通用派发与 DeepSeek 使用说明](docs/generic-workers.md)。
+
 技能和软件之间不走网络，只通过本机的几个文件通信：
 
 - 每个任务的记录在仓库的 `.codex-runs/` 下：汇报、精简进度、结构化事件、原始输出。

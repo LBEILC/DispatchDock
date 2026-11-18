@@ -3,7 +3,7 @@ import { basename, extname, join, resolve } from 'node:path';
 
 export function parseArgs(args) {
   const opts = {}, positional = [];
-  const names = ['role', 'name', 'host', 'model', 'effort', 'tier', 'sandbox', 'watch-window'];
+  const names = ['role', 'name', 'host', 'agent', 'parent', 'model', 'effort', 'tier', 'sandbox', 'watch-window'];
   for (let k = 0; k < args.length; k++) {
     const a = args[k];
     if (a === '--') { positional.push(...args.slice(k + 1)); break; }
@@ -13,9 +13,13 @@ export function parseArgs(args) {
     } else positional.push(a);
   }
   if (!positional[0]) throw new Error('用法：node codex-task.mjs <任务说明文件 | "任务文字"> ["补充说明"] [--role <角色文档名>] [--name <记录名>] [--host <claude-code|devin>]');
-  if (opts.host && !['claude-code', 'devin'].includes(opts.host)) throw new Error(`无效的派活方：${opts.host}`);
+  if (opts.host && !validAgentId(opts.host)) throw new Error(`无效的派活方：${opts.host}`);
+  if (opts.agent && !validAgentId(opts.agent)) throw new Error(`无效的干活方：${opts.agent}`);
+  if (opts.parent !== undefined && (!opts.parent.trim() || opts.parent.length > 256 || /[\x00-\x1f]/.test(opts.parent))) throw new Error('无效的父任务 ID');
   return { opts, task: positional[0], extra: positional[1] ?? '' };
 }
+
+export const validAgentId = value => typeof value === 'string' && /^[a-z][a-z0-9-]{0,63}$/.test(value);
 
 export const clipTitle = s => {
   const one = s.replace(/\s+/g, ' ').trim();
@@ -47,7 +51,7 @@ export function taskDetails(root, { opts, task, extra }) {
 }
 
 export function dispatcher(host, env, scriptPath) {
-  host ??= env.CLAUDECODE === '1' ? 'claude-code' : /devin/i.test(scriptPath) ? 'devin' : 'unknown';
+  host ??= env.CLAUDECODE === '1' ? 'claude-code' : env.CODEX_THREAD_ID ? 'codex' : /devin/i.test(scriptPath) ? 'devin' : 'unknown';
   // 本机环境及官方文档未核实到 Devin 会话环境变量，按任务要求留空。
-  return { host, session: host === 'claude-code' ? env.CLAUDE_CODE_SESSION_ID || null : null };
+  return { host, session: host === 'claude-code' ? env.CLAUDE_CODE_SESSION_ID || null : host === 'codex' ? env.CODEX_THREAD_ID || null : null };
 }

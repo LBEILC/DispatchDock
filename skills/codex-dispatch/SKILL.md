@@ -16,6 +16,8 @@ allowed-tools:
 
 ## 用法
 
+除默认 Codex CLI 外，派发入口支持 `--agent deepseek`（只读 API 执行端）或已配置的桥接执行端；`--host <标识>` 记录上级，`--parent <任务ID>` 关联父任务。非 Codex 执行端的运行契约、配置与权限边界见本技能的 `adapters/README.md`；内置 DeepSeek 需要环境变量 `DEEPSEEK_API_KEY` 和明确模型 ID，只能使用 `read-only`。以下 Codex 默认用法仍然有效，其他上级使用自己可用的进程工具启动脚本并读汇报验收。
+
 ```
 node "<技能目录>/codex-task.mjs" <任务说明文件 | "任务文字"> ["补充说明"] [选项]
 ```

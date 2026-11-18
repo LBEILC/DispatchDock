@@ -12,7 +12,7 @@ const brand = brandSVG.replace('<svg ', '<svg aria-hidden="true" ');
 const marks = { run: ['run', 'loader-4-line'], done: ['ok', 'checkbox-circle-line'], fail: ['fail', 'close-circle-line'], stop: ['warn', 'stop-circle-line'] };
 const mark = (s: Task['status']) => `<span class="mk ${marks[s][0]}">${icon(marks[s][1])}</span>`;
 const project = (t: Task) => t.repo.split(/[\\/]/).filter(Boolean).at(-1)!;
-const host = (t: Task) => t.dispatcher?.host === 'claude-code' ? 'Claude Code' : t.dispatcher?.host === 'devin' ? 'Devin' : c.unknownHost;
+const host = (t: Task) => t.dispatcher?.host === 'claude-code' ? 'Claude Code' : t.dispatcher?.host === 'devin' ? 'Devin' : t.dispatcher?.host === 'codex' ? 'Codex' : t.dispatcher?.host && t.dispatcher.host !== 'unknown' ? t.dispatcher.host : c.unknownHost;
 const timeFormat = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' });
 const dayFormat = new Intl.DateTimeFormat('zh-CN');
 const stampFormat = new Intl.DateTimeFormat('en-CA', { month: '2-digit', day: '2-digit' });
@@ -162,7 +162,8 @@ function renderTab() {
     }
     else {
         const row = (key: string, value: unknown, open?: string) => `<div class="r"><span class="k">${key}</span><span class="v mono">${esc(value)}</span>${open ? `<button class="btn sm quiet" data-open="${open}">${c.open}</button>` : ''}</div>`;
-        body.innerHTML = `<div class="rows">${[[c.record, t.name], [c.spec, t.spec ?? c.direct, t.spec ? 'spec' : undefined], [c.role, t.role ?? c.noRole], [c.dispatcher, host(t)], [c.agent, t.agentVersion ?? 'Codex CLI'], [c.model, t.model ?? c.followCodex], [c.effort, t.effort ?? c.followCodex], [c.tier, t.tier ?? c.followCodex], [c.managed, t.managed?c.yes:c.no], [c.sandbox, t.sandbox ?? '—'], [c.repo, t.repo, 'repo']].map(([k, v, o]) => row(k!, v, o)).join('')}</div><div class="sec-t">${c.records}</div><div class="rows">${[[c.progress, 'progress'], [c.events, 'events'], [c.raw, 'raw']].map(([label, key]) => row(label, t[key as 'progress'] ?? '—', t[key as 'progress'] ? key : undefined)).join('')}</div>`;
+        const codex = !t.agent || t.agent === 'codex', follow = codex ? c.followCodex : '—';
+        body.innerHTML = `<div class="rows">${[[c.record, t.name], ...(t.parent ? [[c.parentTask, t.parent]] : []), [c.spec, t.spec ?? c.direct, t.spec ? 'spec' : undefined], [c.role, t.role ?? c.noRole], [c.dispatcher, host(t)], [c.agent, t.agentVersion ?? (codex ? 'Codex CLI' : t.agent)], [c.model, t.model ?? follow], [c.effort, t.effort ?? follow], [c.tier, t.tier ?? follow], [c.managed, t.managed?c.yes:c.no], [c.sandbox, t.sandbox ?? '—'], [c.repo, t.repo, 'repo']].map(([k, v, o]) => row(k!, v, o)).join('')}</div><div class="sec-t">${c.records}</div><div class="rows">${[[c.progress, 'progress'], [c.events, 'events'], [c.raw, 'raw']].map(([label, key]) => row(label, t[key as 'progress'] ?? '—', t[key as 'progress'] ? key : undefined)).join('')}</div>`;
     }
     if (tab !== 'flow') {
         const compact = root.querySelector<HTMLButtonElement>('[data-plan-top]')!;

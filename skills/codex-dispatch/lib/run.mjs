@@ -13,6 +13,7 @@ import { waitForTask } from './wait.mjs';
 import { stopTask } from './stop.mjs';
 import { killProcessTree } from './process.mjs';
 import { canonicalPath } from './paths.mjs';
+import { selectAdapter } from '../adapters/bridge.mjs';
 
 export async function run({ adapter, scriptPath, args = process.argv.slice(2), env = process.env, root = process.cwd() }) {
   if (args[0] === '--stop') {
@@ -34,7 +35,7 @@ export async function run({ adapter, scriptPath, args = process.argv.slice(2), e
   const request = requestFile ? JSON.parse(readFileSync(requestFile, 'utf8')) : null;
   if (request && !validRequest(request)) throw Error('请求文件无效');
   if (request) root = request.repo;
-  const parsed = request ? { task: request.args.task, extra: request.args.extra, opts: { name: request.name, ...(request.args.role ? { role: request.args.role } : {}) } } : parseArgs(args);
+  const parsed = request ? { task: request.args.task, extra: request.args.extra, opts: { name: request.name, agent: request.agent ?? 'codex', ...(request.parent ? { parent: request.parent } : {}), ...(request.args.role ? { role: request.args.role } : {}) } } : parseArgs(args);
   const details = taskDetails(root, parsed);
   const dryRun = !request && !!env.CODEX_DRY_RUN;
   const started = Date.now();
@@ -48,6 +49,9 @@ export async function run({ adapter, scriptPath, args = process.argv.slice(2), e
   const home = homeDirectory(env);
   const registry = registryWriter(home);
   const { settings, warning, config } = request ? { settings: { ...request.settings, watchWindow: 'never' }, warning: null, config: {} } : loadConfig(home, parsed.opts, env);
+  const agent = parsed.opts.agent ?? 'codex';
+  const parent = parsed.opts.parent ?? env.DISPATCH_PARENT_ID ?? null;
+  adapter ??= selectAdapter(agent, settings);
   writeFileSync(paths.raw, '');
   writeFileSync(paths.events, '');
   const interactive = !!process.stdout.isTTY;
@@ -63,9 +67,9 @@ export async function run({ adapter, scriptPath, args = process.argv.slice(2), e
   if (!request && acceptsManaged(home, config.managed === true)) {
     const app = viewerApp(home);
     const announce = text => { if (text === managedMessage(app)) console.log(text); else { progress(text); if (!interactive) console.log(text); } };
-    const result = await handoff(home, { v: 1, id, app, at: started, script: scriptPath, node: process.execPath, repo: root, name: paths.name,
+    const result = await handoff(home, { v: 1, id, app, at: started, script: scriptPath, node: process.execPath, repo: root, name: paths.name, ...(agent !== 'codex' ? { agent } : {}), ...(parent ? { parent } : {}),
       args: { task: parsed.task, extra: parsed.extra, role: parsed.opts.role ?? null, spec: details.spec },
-      settings: Object.fromEntries(['model','effort','tier','sandbox','path'].map(key => [key, settings[key]])), dispatcher: source, env: managedEnvironment(env) }, announce,
+      settings: Object.fromEntries(['model','effort','tier','sandbox','path', ...(agent !== 'codex' ? ['args'] : [])].map(key => [key, settings[key]])), dispatcher: source, env: managedEnvironment(env) }, announce,
       { startTimeout: Number(env.CODEX_DISPATCH_TEST_START_TIMEOUT_MS) > 0 ? Number(env.CODEX_DISPATCH_TEST_START_TIMEOUT_MS) : 15000 });
     if ('exit' in result) {
       return printCompletion(result.exit, paths);
@@ -77,7 +81,7 @@ export async function run({ adapter, scriptPath, args = process.argv.slice(2), e
     title: details.title, role: details.role?.name ?? null, pid: process.pid, started,
     progress: paths.progress, report: paths.report, raw: paths.raw, model: settings.model, effort: settings.effort, tier: settings.tier,
     agent: adapter.id, agentVersion: detection.version, sandbox: settings.sandbox, events: paths.events,
-    dispatcher: source, ...(request ? { managed: true } : {}),
+    dispatcher: source, ...(parent ? { parent } : {}), ...(request ? { managed: true } : {}),
   });
   let seq = 0, lastSay = null;
   const errors = [];
@@ -99,14 +103,15 @@ export async function run({ adapter, scriptPath, args = process.argv.slice(2), e
     return code ?? 1;
   };
   let command;
+  const agentLabel = adapter.id === 'codex' ? 'Codex' : adapter.id;
   try { command = adapter.command({ root, report: paths.report, prompt: details.prompt, settings, detection, env }); }
-  catch (error) { emit({ kind: 'error', text: `启动 Codex 失败：${error.message}` }); return finish(1); }
+  catch (error) { emit({ kind: 'error', text: `启动 ${agentLabel} 失败：${error.message}` }); return finish(1); }
   if (shouldWatch({ platform: process.platform, interactive, policy: settings.watchWindow, takeover: viewerTakesOver(home) })) openWatch(paths.name, paths.progress);
   return await new Promise(resolve => {
     let child;
     try {
-      child = spawn(command.executable, command.args, { cwd: root, env, stdio: ['pipe', 'pipe', 'pipe'], shell: false, windowsHide: true });
-    } catch (error) { emit({ kind: 'error', text: `启动 Codex 失败：${error.message}` }); resolve(finish(1)); return; }
+      child = spawn(command.executable, command.args, { cwd: root, env: { ...env, DISPATCH_PARENT_ID: id }, stdio: ['pipe', 'pipe', 'pipe'], shell: false, windowsHide: true });
+    } catch (error) { emit({ kind: 'error', text: `启动 ${agentLabel} 失败：${error.message}` }); resolve(finish(1)); return; }
     registry({ event: 'spawned', id, codexPid: child.pid ?? null, agentPid: child.pid ?? null, at: Date.now() });
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
@@ -121,7 +126,7 @@ export async function run({ adapter, scriptPath, args = process.argv.slice(2), e
     let stderr = '';
     child.stderr.on('data', chunk => { appendFileSync(paths.raw, chunk); stderr = (stderr + chunk).slice(-4096); });
     let failed = false;
-    child.on('error', error => { failed = true; emit({ kind: 'error', text: `启动 Codex 失败：${error.message}` }); });
+    child.on('error', error => { failed = true; emit({ kind: 'error', text: `启动 ${agentLabel} 失败：${error.message}` }); });
     child.stdin.on('error', error => {
       if (error.code !== 'EPIPE') emit({ kind: 'error', text: error.message });
     });

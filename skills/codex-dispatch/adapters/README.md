@@ -2,9 +2,17 @@
 
 技能只依赖 Node 24 内置模块。分发时复制整个 `codex-dispatch/`，保留 `lib/`、`adapters/` 和入口的相对位置。
 
-当前入口只接入 `codex`。公共层处理参数、配置、记录名、清单、进度、窗口和生命周期；适配器只处理检测、启动参数及原始事件映射。不要在公共层再次判断 Codex 的事件类型。
+默认入口接入 `codex`；`--agent deepseek` 使用内置只读 API 执行端，其他标识使用配置的桥接程序。公共层处理参数、配置、记录名、清单、进度、窗口和生命周期；适配器只处理检测、启动参数及原始事件映射。不要在公共层再次判断 Codex 的事件类型。桥接 stdin 和事件协议见 [通用执行端](../../../docs/generic-workers.md)。
 
 ## 接口
+
+### 通用执行端快速使用
+
+在目标仓库运行 `node <技能目录>/codex-task.mjs "任务" --host codex --agent deepseek --model <模型ID> --sandbox read-only`。内置 DeepSeek 从环境读取 `DEEPSEEK_API_KEY`，只提供仓库内的目录查看和文件读取，不修改文件或执行命令。最多 12 轮请求、32 次工具调用、每轮 4096 输出 token、总计 10 分钟；达到限制非零退出。模型 ID 也可通过 `DEEPSEEK_MODEL` 指定。托管时密钥必须在监控软件启动环境中，不会写进请求文件。
+
+其他执行端在公共 `config.json` 中配置 `agents.<标识> = {"path":"绝对可执行文件或Node入口路径","args":["字面参数"],"model":"模型ID","sandbox":"read-only"}`，再用 `--agent <标识>` 选择。参数不经 shell，拒绝 `.cmd/.bat/.ps1` 包装。执行端从 stdin 读取一份 `{"v":1,"repo":"绝对仓库路径","prompt":"任务","settings":{"model":null,"effort":null,"tier":null,"sandbox":"read-only"}}`，向 stdout 逐行输出下表的统一事件；公共层补充 `v/seq/at`。最后一条 `say` 为汇报，失败必须非零退出。`sandbox` 由执行端落实，公共层不为任意程序提供 OS 沙箱。完整说明在源码仓库的 `docs/generic-workers.md`。
+
+`--parent <父任务ID>` 写入关联。每个执行端获得 `DISPATCH_PARENT_ID=<本任务ID>`，它再次派发时会自动继承；只有关联，不授予再次派发权限、不提供自动调度，也不会级联停止独立托管的任务。`--wait`、`--stop` 和记录路径与原来相同。
 
 | 成员 | 约定 |
 |---|---|

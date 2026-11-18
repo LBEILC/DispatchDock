@@ -184,7 +184,8 @@ test('显式 host 优先，Claude 自动识别优先于 Devin 路径，会话不
   assert.deepEqual(dispatcher(undefined, {}, '/skills/codex'), { host: 'unknown', session: null });
   assert.equal(s.invoke([], { CLAUDECODE: '1', CLAUDE_CODE_SESSION_ID: 'fake-session' }).status, 0);
   assert.equal(jsonl(path.join(s.home, 'runs.jsonl'))[0].dispatcher.host, 'claude-code');
-  assert.throws(() => parseArgs(['task', '--host', 'other']));
+  assert.equal(parseArgs(['task', '--host', 'other']).opts.host, 'other');
+  assert.throws(() => parseArgs(['task', '--host', '../other']));
 });
 
 test('角色、共同规则、说明文件、补充说明的指令拼装保持原样', t => {

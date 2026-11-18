@@ -2,6 +2,7 @@ import { readFileSync, mkdirSync, writeFileSync, renameSync, rmSync } from 'node
 import { homedir } from 'node:os';
 import { join, resolve, isAbsolute } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { validAgentId } from './options.mjs';
 
 export function userDirectory(env = process.env, platform = process.platform) {
   return (platform === 'win32' ? env.USERPROFILE || env.HOME : env.HOME || env.USERPROFILE) || homedir();
@@ -35,18 +36,25 @@ function validate(key, value, source) {
 export function resolveSettings(config, opts = {}, env = {}) {
   if (config.managed !== undefined) validate('managed', config.managed, 'config.json');
   if (config.agents != null && !object(config.agents)) throw new Error('config.json 的 agents 必须为对象');
-  if (config.agents?.codex != null && !object(config.agents.codex)) throw new Error('config.json 的 agents.codex 必须为对象');
-  const agent = config.agents?.codex ?? {}, settings = {}, sources = {};
+  const id = opts.agent ?? 'codex';
+  if (!validAgentId(id)) throw new Error('无效的干活方');
+  if (config.agents?.[id] != null && !object(config.agents[id])) throw new Error(`config.json 的 agents.${id} 必须为对象`);
+  const agent = config.agents?.[id] ?? {}, settings = {}, sources = {};
   for (const key of Object.keys(defaults)) {
     const fromFile = key === 'watchWindow' ? config.watchWindow : agent[key];
     validate(key, fromFile, 'config.json');
     const option = key === 'watchWindow' ? opts['watch-window'] : key === 'path' ? undefined : opts[key];
-    const envName = key === 'watchWindow' ? 'CODEX_NO_WATCH' : `CODEX_${key.toUpperCase()}`;
+    let envName = key === 'watchWindow' ? 'CODEX_NO_WATCH' : `${id === 'codex' ? 'CODEX' : `DISPATCH_${id.replaceAll('-', '_').toUpperCase()}`}_${key.toUpperCase()}`;
+    if (id === 'deepseek' && key === 'model' && !env[envName]) envName = 'DEEPSEEK_MODEL';
     const fromEnv = key === 'path' ? undefined : key === 'watchWindow' ? (env[envName] ? 'never' : undefined) : (env[envName] || undefined);
     validate(key, fromEnv, `环境变量 ${envName}`); validate(key, option, '命令行');
     const value = option ?? fromEnv ?? fromFile;
-    settings[key] = value == null ? defaults[key] : value;
+    settings[key] = value == null ? (key === 'sandbox' && id !== 'codex' ? 'read-only' : defaults[key]) : value;
     sources[key] = option != null ? '命令行' : fromEnv != null ? `环境变量 ${envName}` : fromFile !== undefined ? 'config.json' : '内置默认';
+  }
+  if (id !== 'codex') {
+    if (agent.args !== undefined && (!Array.isArray(agent.args) || !agent.args.every(arg => typeof arg === 'string' && !arg.includes('\0')))) throw new Error(`config.json 的 agents.${id}.args 必须为字符串数组`);
+    settings.args = agent.args ?? [];
   }
   return { settings, sources };
 }

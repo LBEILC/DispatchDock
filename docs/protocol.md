@@ -39,9 +39,15 @@
 
 - `interrupted` 的 `signal`：派发脚本收到的信号名（`SIGINT`、`SIGTERM`、`SIGBREAK`、`SIGHUP`）；`stopped-by-app`（在监控软件里停止）；`stopped-by-command`（派发脚本的 `--stop`，见第 9 节）。其他读取方可能写自己的值，读取方不认识的值一律按"中断"处理。
 - `model` / `effort` / `tier` 在没有覆盖、交给干活方自己配置时写 `null`。旧的读取方显示时可能出现空白，这是可以接受的退化。
-- `dispatcher`：`{ "host": "claude-code" | "devin" | "unknown", "session": <宿主会话 ID 或 null> }`。识别顺序：命令行 `--host` > 环境变量 `CLAUDECODE=1`（Claude Code，会话取 `CLAUDE_CODE_SESSION_ID`）> 脚本路径含 `devin`（Devin 的技能目录）> `unknown`。Devin 没有可用的会话 ID 环境变量，`session` 写 null。会话 ID 只写进本机清单，不进任何仓库文件。
+- `dispatcher`：`{ "host": <派活方标识>, "session": <宿主会话 ID 或 null> }`。标识规则见下方通用执行端扩展。识别顺序：命令行 `--host` > 环境变量 `CLAUDECODE=1`（Claude Code，会话取 `CLAUDE_CODE_SESSION_ID`）> `CODEX_THREAD_ID`（Codex）> 脚本路径含 `devin`（Devin 的技能目录）> `unknown`。Devin 和自定义上级没有可用的会话 ID 时，`session` 写 null。会话 ID 只写进本机清单，不进任何仓库文件。
 
 ## 3. 每个任务的文件
+
+### 通用执行端扩展
+
+`start.agent` 可以是 `codex`、`deepseek` 或配置的桥接执行端标识；省略时旧记录仍视为 Codex。`dispatcher.host` 允许小写字母开头、包含小写字母/数字/连字符的标识（最长 64 字符），不再限于两个宿主。`start.parent` 是可选的父任务 ID，不改变既有状态语义。监控参数页显示实际执行端与父 ID。
+
+托管请求可增加 `agent`、`parent`，`settings` 可增加字符串数组 `args`。缺少 `agent` 时仍为 Codex；`args` 只传参数数组，不使用 shell 求值。请求不携带 API 密钥，执行端继承软件进程的环境。公共目录、文件后缀、日志首尾兼容格式及既有字段保持不变。完整使用契约见 [通用派发](generic-workers.md)。
 
 都在 `<仓库>/.codex-runs/` 下，`<name>` 是记录名。
 

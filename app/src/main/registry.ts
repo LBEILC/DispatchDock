@@ -17,7 +17,7 @@ export function mergeLine(tasks: Map<string, Task>, line: string) {
             if (!['repo', 'name', 'progress', 'report'].every(k => typeof e[k] === 'string') || !Number.isFinite(e.started) || !Number.isFinite(new Date(e.started).getTime()) || !path.isAbsolute(e.repo) || !path.isAbsolute(e.progress) || !path.isAbsolute(e.report))
                 return;
             const t: Task = { id: e.id, repo: e.repo, name: e.name, title: typeof e.title === 'string' ? e.title : e.name, spec: typeof e.spec === 'string' ? e.spec : null, role: typeof e.role === 'string' ? e.role : null, pid: Number.isSafeInteger(e.pid) && e.pid > 0 ? e.pid : 0, started: e.started, progress: e.progress, report: e.report, model: typeof e.model === 'string' ? e.model : null, effort: typeof e.effort === 'string' ? e.effort : null, tier: typeof e.tier === 'string' ? e.tier : null, status: 'run', last: '' };
-            for (const key of ['raw', 'events', 'sandbox', 'agent', 'agentVersion'] as const)
+            for (const key of ['raw', 'events', 'sandbox', 'agent', 'agentVersion', 'parent'] as const)
                 if (typeof e[key] === 'string')
                     t[key] = e[key];
             if (e.dispatcher && typeof e.dispatcher.host === 'string')
