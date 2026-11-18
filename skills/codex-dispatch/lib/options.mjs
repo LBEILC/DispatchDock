@@ -3,7 +3,7 @@ import { basename, extname, join, resolve } from 'node:path';
 
 export function parseArgs(args) {
   const opts = {}, positional = [];
-  const names = ['role', 'name', 'host', 'agent', 'parent', 'model', 'effort', 'tier', 'sandbox', 'watch-window'];
+  const names = ['role', 'name', 'host', 'agent', 'parent', 'policy', 'model', 'effort', 'tier', 'sandbox', 'watch-window'];
   for (let k = 0; k < args.length; k++) {
     const a = args[k];
     if (a === '--') { positional.push(...args.slice(k + 1)); break; }

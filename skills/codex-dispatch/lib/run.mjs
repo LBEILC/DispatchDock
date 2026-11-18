@@ -16,6 +16,10 @@ import { canonicalPath } from './paths.mjs';
 import { selectAdapter } from '../adapters/bridge.mjs';
 
 export async function run({ adapter, scriptPath, args = process.argv.slice(2), env = process.env, root = process.cwd() }) {
+  if (args[0] === '--queue' || args[0] === '--queue-status') {
+    const { queueCommand } = await import('./queue.mjs');
+    return queueCommand({ args, env, root, scriptPath });
+  }
   if (args[0] === '--stop') {
     if (args.length !== 2 || !args[1] || args[1].startsWith('--')) throw Error('用法：node codex-task.mjs --stop <记录名>');
     return stopTask(homeDirectory(env), root, args[1]);
@@ -50,6 +54,7 @@ export async function run({ adapter, scriptPath, args = process.argv.slice(2), e
   const registry = registryWriter(home);
   const { settings, warning, config } = request ? { settings: { ...request.settings, watchWindow: 'never' }, warning: null, config: {} } : loadConfig(home, parsed.opts, env);
   const agent = parsed.opts.agent ?? 'codex';
+  if (parsed.opts.policy) settings.policy = resolvePath(root, parsed.opts.policy);
   const parent = parsed.opts.parent ?? env.DISPATCH_PARENT_ID ?? null;
   adapter ??= selectAdapter(agent, settings);
   writeFileSync(paths.raw, '');
@@ -64,12 +69,12 @@ export async function run({ adapter, scriptPath, args = process.argv.slice(2), e
   if (request) progress(managedMessage(request.app));
   const id = request?.id ?? `${paths.name}-${started}-${process.pid}`;
   const source = request?.dispatcher ?? dispatcher(parsed.opts.host, env, scriptPath);
-  if (!request && acceptsManaged(home, config.managed === true)) {
+  if (!request && env.CODEX_DISPATCH_NO_MANAGED !== '1' && acceptsManaged(home, config.managed === true)) {
     const app = viewerApp(home);
     const announce = text => { if (text === managedMessage(app)) console.log(text); else { progress(text); if (!interactive) console.log(text); } };
     const result = await handoff(home, { v: 1, id, app, at: started, script: scriptPath, node: process.execPath, repo: root, name: paths.name, ...(agent !== 'codex' ? { agent } : {}), ...(parent ? { parent } : {}),
       args: { task: parsed.task, extra: parsed.extra, role: parsed.opts.role ?? null, spec: details.spec },
-      settings: Object.fromEntries(['model','effort','tier','sandbox','path', ...(agent !== 'codex' ? ['args'] : [])].map(key => [key, settings[key]])), dispatcher: source, env: managedEnvironment(env) }, announce,
+      settings: Object.fromEntries(['model','effort','tier','sandbox','path', ...(agent !== 'codex' ? ['args'] : []), ...(settings.policy ? ['policy'] : [])].map(key => [key, settings[key]])), dispatcher: source, env: managedEnvironment(env) }, announce,
       { startTimeout: Number(env.CODEX_DISPATCH_TEST_START_TIMEOUT_MS) > 0 ? Number(env.CODEX_DISPATCH_TEST_START_TIMEOUT_MS) : 15000 });
     if ('exit' in result) {
       return printCompletion(result.exit, paths);

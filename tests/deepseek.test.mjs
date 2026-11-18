@@ -49,7 +49,7 @@ test('DeepSeek 仓库边界、敏感文件、目录联接和工具参数', async
 
 test('DeepSeek 拒绝写权限、缺失密钥与不安全地址，未发起请求', async t => {
   const f = await fixture(t), fetcher = async () => { throw Error('不应请求'); };
-  await assert.rejects(runDeepSeek({ ...f.request, settings: { ...f.request.settings, sandbox: 'workspace-write' } }, { env: f.env, fetcher }), /read-only/);
+  await assert.rejects(runDeepSeek({ ...f.request, settings: { ...f.request.settings, sandbox: 'workspace-write' } }, { env: f.env, fetcher }), /可写策略/);
   await assert.rejects(runDeepSeek(f.request, { env: {}, fetcher }), /DEEPSEEK_API_KEY/);
   await assert.rejects(runDeepSeek(f.request, { env: { ...f.env, DEEPSEEK_BASE_URL: 'http://example.com' }, fetcher }), /HTTPS/);
 });

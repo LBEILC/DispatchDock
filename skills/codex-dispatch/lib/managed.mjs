@@ -38,6 +38,7 @@ export function validRequest(r) {
     && object(r.args) && typeof r.args.task === 'string' && !!r.args.task && typeof r.args.extra === 'string' && nullable(r.args.role) && nullable(r.args.spec)
     && object(r.settings) && ['model','effort','tier','path'].every(k => nullable(r.settings[k])) && typeof r.settings.sandbox === 'string'
     && (r.settings.path === null || isAbsolute(r.settings.path))
+    && (r.settings.policy === undefined || (typeof r.settings.policy === 'string' && isAbsolute(r.settings.policy)))
     && (r.agent === undefined || validAgentId(r.agent))
     && (r.parent === undefined || (typeof r.parent === 'string' && !!r.parent.trim() && r.parent.length <= 256 && !/[\x00-\x1f]/.test(r.parent)))
     && (r.settings.args === undefined || (Array.isArray(r.settings.args) && r.settings.args.every(arg => typeof arg === 'string' && !arg.includes('\0'))))

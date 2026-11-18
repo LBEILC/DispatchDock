@@ -1,4 +1,4 @@
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, statSync, readFileSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { codex, limitOutput } from './codex.mjs';
@@ -39,7 +39,7 @@ export function selectAdapter(id, settings) {
       if (detection?.error) throw Error(detection.error);
       const nodeEntry = /\.(mjs|cjs|js)$/i.test(executable);
       return { executable: nodeEntry ? process.execPath : executable, args: [...(nodeEntry ? [executable] : []), ...(args ?? [])],
-        stdin: JSON.stringify({ v: 1, repo: root, prompt, settings: Object.fromEntries(['model', 'effort', 'tier', 'sandbox'].map(key => [key, settings[key]])) }) + '\n' };
+        stdin: JSON.stringify({ v: 1, repo: root, prompt, settings: { ...Object.fromEntries(['model', 'effort', 'tier', 'sandbox'].map(key => [key, settings[key]])), ...(settings.policy ? { policy: JSON.parse(readFileSync(settings.policy, 'utf8')) } : {}) } }) + '\n' };
     },
     mapLine: bridgeEvents,
   };
