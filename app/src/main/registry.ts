@@ -53,12 +53,15 @@ export class RegistryReader {
     rows = new Map<string, Task>();
     private offset = 0;
     private identity = '';
+    private pending: Buffer[] = [];
     async read(file: string) {
         const h = await open(file, 'r').catch((e: NodeJS.ErrnoException) => { if (e.code !== 'ENOENT')
             throw e; return null; });
         if (!h) {
             this.rows.clear();
             this.offset = 0;
+            this.identity = '';
+            this.pending = [];
             return [];
         }
         try {
@@ -67,17 +70,25 @@ export class RegistryReader {
                 this.rows.clear();
                 this.offset = 0;
                 this.identity = identity;
+                this.pending = [];
             }
-            // 每次只保留尾部未完成的偏移，不缓存已读清单文本。
+            // 读取块不是行长上限；保留未完成行的字节，避免跨块截断 UTF-8。
             while (this.offset < s.size) {
                 const b = Buffer.alloc(Math.min(2 * 1024 * 1024, s.size - this.offset));
-                await h.read(b, 0, b.length, this.offset);
-                const end = b.lastIndexOf(10) + 1;
-                if (!end)
-                    break;
-                for (const line of b.subarray(0, end).toString('utf8').split('\n'))
-                    mergeLine(this.rows, line);
-                this.offset += end;
+                const { bytesRead } = await h.read(b, 0, b.length, this.offset);
+                if (!bytesRead) break;
+                const chunk = b.subarray(0, bytesRead);
+                let start = 0, end;
+                while ((end = chunk.indexOf(10, start)) !== -1) {
+                    const part = chunk.subarray(start, end);
+                    const line = this.pending.length ? Buffer.concat([...this.pending, part]) : part;
+                    mergeLine(this.rows, line.toString('utf8'));
+                    this.pending = [];
+                    start = end + 1;
+                }
+                // 复制尾段，避免很短的半行一直占着整块内存。
+                if (start < chunk.length) this.pending.push(Buffer.from(chunk.subarray(start)));
+                this.offset += bytesRead;
             }
             return [...this.rows.values()].map(t => ({ ...t }));
         }
