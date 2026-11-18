@@ -123,6 +123,33 @@ test('macOS 平台核对隔离派发进程并停止全部假子进程，保留�
     assert.equal(unrelated.signalCode, null);
 });
 test('清单增量与截断恢复',async()=>{const {home,entry}=await fixture(),file=path.join(home,'runs.jsonl'),reader=new RegistryReader();assert.equal((await reader.read(file)).length,1);await appendFile(file,JSON.stringify({v:1,event:'end',id:'sample',exit:0,at:2}));assert.equal((await reader.read(file))[0].status,'run');await appendFile(file,'\n');assert.equal((await reader.read(file))[0].status,'done');await writeFile(file,lines({...entry,id:'new'}));assert.equal((await reader.read(file))[0].id,'new');});
+test('清单跨越读取块的长行、UTF-8 与尾部半行不阻塞后续任务', async t => {
+    const { home, entry } = await fixture(), file = path.join(home, 'runs.jsonl');
+    t.after(() => rm(home, { recursive: true, force: true }));
+    const reader = new RegistryReader(), title = '中文🚀'.repeat(300000);
+    await writeFile(file, lines({ ...entry, title }) + 'x'.repeat(3 * 1024 * 1024) + '\n' + JSON.stringify({ ...entry, id: 'next' }));
+    const first = await reader.read(file);
+    assert.equal(first.length, 1);
+    assert.equal(first[0].title, title);
+    assert.equal((await reader.read(file)).length, 1);
+    await appendFile(file, '\n' + lines({ v: 1, event: 'end', id: 'next', exit: 0 }));
+    assert.deepEqual((await reader.read(file)).map(task => [task.id, task.status]), [['sample', 'run'], ['next', 'done']]);
+});
+test('清单截断或删除后丢弃旧半行', async t => {
+    const { home, entry } = await fixture(), file = path.join(home, 'runs.jsonl');
+    t.after(() => rm(home, { recursive: true, force: true }));
+    const reader = new RegistryReader();
+    await appendFile(file, '{"unfinished":"' + 'x'.repeat(10000));
+    assert.equal((await reader.read(file)).length, 1);
+    await writeFile(file, lines({ ...entry, id: 'truncated' }));
+    assert.deepEqual((await reader.read(file)).map(task => task.id), ['truncated']);
+    await appendFile(file, '{"unfinished":');
+    await reader.read(file);
+    await rm(file);
+    assert.deepEqual(await reader.read(file), []);
+    await writeFile(file, lines({ ...entry, id: 'recreated' }));
+    assert.deepEqual((await reader.read(file)).map(task => task.id), ['recreated']);
+});
 test('事件尾页、增量半行与前向翻页按字节限制，未知事件忽略',async()=>{const {task}=await fixture();const make=(seq:number)=>({v:1,seq,at:seq,kind:'say',text:'中文'.repeat(60)});const source=Array.from({length:9000},(_,i)=>make(i+1));await writeFile(task.events!,lines(...source));const page=await readEvents(task);assert.ok(page.cursor.start>0);assert.ok(page.cursor.end-page.cursor.start<=PAGE_BYTES);assert.equal(page.events.at(-1)?.seq,9000);const before=await readEvents(task,page.cursor,true);assert.ok(before.events.length>0);assert.ok(before.events.at(-1)!.seq<page.events[0].seq);assert.equal(before.cursor.end,page.cursor.end);const next=make(9001);await appendFile(task.events!,JSON.stringify(next));assert.equal((await readEvents(task,page.cursor)).events.length,0);await appendFile(task.events!,'\n'+lines({v:1,seq:9002,at:0,kind:'future'}));const update=await readEvents(task,page.cursor);assert.equal(update.events.length,1);assert.equal(update.events[0].text,next.text);await writeFile(task.events!,lines(make(1)));assert.equal((await readEvents(task,update.cursor)).reset,true);});
 test('旧进度解析包括错误、计划、命令失败与统一文件事件；不读取原始 log',async()=>{assert.equal(parseEvent('[12:00:00] 错误：失败',0,true)?.kind,'error');assert.equal(parseEvent('[12:00:00] 出错：失败',0,true)?.kind,'error');assert.deepEqual(parseEvent('[12:00:00] 计划：[x] 第一步 [ ] 第二步',0,true)?.items,[{text:'第一步',done:true},{text:'第二步',done:false}]);assert.equal(parseEvent('[12:00:00]   命令失败（exit 1）：npm test',0,true)?.exit,1);assert.equal(parseEvent('[12:00:00] 新增文件：src/demo.ts',0,true)?.files?.[0].kind,'add');const {task}=await fixture();task.raw=task.progress.replace('.progress.log','.log');await writeFile(task.raw,'private raw');await writeFile(task.progress,'[12:00:00] 说：进度\n');assert.equal((await readEvents(task)).events[0].text,'进度');});
 test('提交号与安全 Markdown，只允许 http(s) 链接，无 HTML 执行',()=>{assert.equal(commitFrom('`123456` `4f2a9c1` `b81e0d2`'),'4f2a9c1');assert.equal(commitFrom('`1234567890123`'),undefined);const html=markdown('# 汇报\n<script>alert(1)</script>\n[bad](javascript:alert)\n[ok](https://example.org/)\n## TODO(design) 1 条\n- 待定\n## 推断清单\n1. 一项\n```html\n<img src=x onerror=alert(1)>\n```');assert.ok(!html.includes('<script>'));assert.ok(!html.includes('<img'));assert.ok(!html.includes('href="javascript:'));assert.ok(html.includes('href="https://example.org/"'));assert.equal((html.match(/class="hl warn"/g)??[]).length,2);});
