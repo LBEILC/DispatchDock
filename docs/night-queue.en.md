@@ -1,5 +1,7 @@
 # Running a night queue: Codex directs DeepSeek
 
+For arbitrary planning, execution and review profiles, start with the [workflow guide](ai-workflow.en.md). The examples below retain the compatible DeepSeek/Codex defaults; new plans may select `worker:"builder"` and `reviewer:"judge"`.
+
 The queue executes task cards in a preset, fixed order: DS edits the authorized files → the queue independently reruns the checks → Codex reads the actual artifacts and returns a structured review result. If a check fails or Codex returns `rework`, the evidence is fed back to DS; only when every check passes and Codex returns `accept` does the queue move on to the next task. Codex returning `stop`, a permission violation, an exhausted budget, or a failed review process halts the queue, and missing evidence is never treated as success.
 
 ## Preparation

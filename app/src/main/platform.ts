@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { posix } from 'node:path';
-import { processList, killProcessTree } from '../../../skills/codex-dispatch/lib/process.mjs';
+import { processList, killProcessTree, isDispatchCommand } from '../../../skills/codex-dispatch/lib/process.mjs';
 export interface ProcessInfo {
     pid: number;
     name: string;
@@ -14,7 +14,7 @@ export interface Platform {
     open(file: string): Promise<void>;
 }
 const run = promisify(execFile);
-export function dispatchMatches(p: ProcessInfo | undefined, started: number) { return !!p && ['node', 'node.exe'].includes(p.name.toLowerCase()) && /(?:^|[\\/\s"])codex-task\.mjs(?:["\s]|$)/i.test(p.command) && p.created <= started && started - p.created < 60000; }
+export function dispatchMatches(p: ProcessInfo | undefined, started: number, pidCreated?: number) { return !!p && ['node', 'node.exe'].includes(p.name.toLowerCase()) && isDispatchCommand(p.command) && p.created <= started && (pidCreated === undefined ? started - p.created < 60000 : p.created === pidCreated); }
 export function windowsPlatform(openFile: (file: string) => Promise<string>): Platform {
     return {
         async processes(pids) {

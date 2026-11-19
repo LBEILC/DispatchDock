@@ -1,5 +1,7 @@
 # Codex 指挥 DeepSeek 的夜间队列
 
+任意 AI 的规划、执行、验收与一次配置复用见 [通用流程](ai-workflow.md)。本文保留 DS 执行、Codex 验收的兼容示例；新计划可用 `worker:"builder"`、`reviewer:"judge"` 选择任意配置。
+
 队列按预先固定的任务卡顺序执行：DS 修改授权文件 → 队列独立重跑检查 → Codex 读取实际产物并返回结构化验收结果。检查失败或 Codex 返回 `rework` 时，把证据反馈给 DS；只有检查全部通过且 Codex `accept` 才进入下一项。Codex 返回 `stop`、权限越界、预算耗尽或验收进程失败会停止，不把缺证据视为成功。
 
 ## 准备

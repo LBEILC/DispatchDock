@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { join, resolve, isAbsolute } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { validAgentId } from './options.mjs';
+import { profileOptions } from './profiles.mjs';
 
 export function userDirectory(env = process.env, platform = process.platform) {
   return (platform === 'win32' ? env.USERPROFILE || env.HOME : env.HOME || env.USERPROFILE) || homedir();
@@ -56,6 +57,9 @@ export function resolveSettings(config, opts = {}, env = {}) {
     if (agent.args !== undefined && (!Array.isArray(agent.args) || !agent.args.every(arg => typeof arg === 'string' && !arg.includes('\0')))) throw new Error(`config.json 的 agents.${id}.args 必须为字符串数组`);
     settings.args = agent.args ?? [];
   }
+  Object.assign(settings, profileOptions(agent));
+  const knownCredentials = Object.values(config.agents ?? {}).flatMap(profile => profile && typeof profile === 'object' ? [...(Array.isArray(profile.credentialEnv) ? profile.credentialEnv : []), ...(typeof profile.api?.apiKeyEnv === 'string' ? [profile.api.apiKeyEnv] : [])] : []);
+  if (knownCredentials.length) settings.credentialDenyEnv = [...new Set([...(settings.credentialDenyEnv ?? []), ...knownCredentials])];
   return { settings, sources };
 }
 export function loadConfig(home, opts = {}, env = process.env) {
@@ -115,4 +119,24 @@ export function configCommand(args, env = process.env) {
     writeConfig(home, changes);
   }
   return message + formatConfig(home, env);
+}
+
+export function importProfiles(home, profiles, { replace = false } = {}) {
+  const state = readConfig(home);
+  if (state.reason) throw Error('现有配置无效，未写入');
+  if (!profiles || typeof profiles !== 'object' || Array.isArray(profiles) || !Object.keys(profiles).length) throw Error('需要非空 agents 配置对象');
+  const allowed = new Set(['adapter','api','model','effort','tier','sandbox','path','args','credentialEnv','credentialDenyEnv']);
+  for (const [id, profile] of Object.entries(profiles)) {
+    if (!validAgentId(id) || !profile || typeof profile !== 'object' || Array.isArray(profile) || Object.keys(profile).some(key => !allowed.has(key))) throw Error('AI 配置名称或字段无效；只接受环境变量名称，不能导入密钥值');
+    if (!replace && Object.hasOwn(state.config.agents ?? {}, id)) throw Error(`配置 ${id} 已存在；明确替换时加 --replace`);
+    resolveSettings({ agents: { [id]: profile } }, { agent: id }, {});
+  }
+  const config = { ...state.config, v: 1, agents: { ...state.config.agents, ...profiles } };
+  mkdirSync(home, { recursive: true });
+  let backup = null;
+  if (state.exists) { backup = join(home, `config-before-agents-${randomUUID()}.json`); writeFileSync(backup, readFileSync(state.file), { flag: 'wx' }); }
+  const temp = join(home, `.config-agents-${randomUUID()}.tmp`);
+  try { writeFileSync(temp, JSON.stringify(config, null, 2), { flag: 'wx' }); renameSync(temp, state.file); }
+  finally { rmSync(temp, { force: true }); }
+  return { imported: Object.keys(profiles), backup, file: state.file };
 }

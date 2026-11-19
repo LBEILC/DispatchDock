@@ -16,7 +16,7 @@ export function mergeLine(tasks: Map<string, Task>, line: string) {
         if (e.event === 'start') {
             if (!['repo', 'name', 'progress', 'report'].every(k => typeof e[k] === 'string') || !Number.isFinite(e.started) || !Number.isFinite(new Date(e.started).getTime()) || !path.isAbsolute(e.repo) || !path.isAbsolute(e.progress) || !path.isAbsolute(e.report))
                 return;
-            const t: Task = { id: e.id, repo: e.repo, name: e.name, title: typeof e.title === 'string' ? e.title : e.name, spec: typeof e.spec === 'string' ? e.spec : null, role: typeof e.role === 'string' ? e.role : null, pid: Number.isSafeInteger(e.pid) && e.pid > 0 ? e.pid : 0, started: e.started, progress: e.progress, report: e.report, model: typeof e.model === 'string' ? e.model : null, effort: typeof e.effort === 'string' ? e.effort : null, tier: typeof e.tier === 'string' ? e.tier : null, status: 'run', last: '' };
+            const t: Task = { ...(Number.isFinite(e.pidCreated) && e.pidCreated <= e.started ? { pidCreated: e.pidCreated } : {}), id: e.id, repo: e.repo, name: e.name, title: typeof e.title === 'string' ? e.title : e.name, spec: typeof e.spec === 'string' ? e.spec : null, role: typeof e.role === 'string' ? e.role : null, pid: Number.isSafeInteger(e.pid) && e.pid > 0 ? e.pid : 0, started: e.started, progress: e.progress, report: e.report, model: typeof e.model === 'string' ? e.model : null, effort: typeof e.effort === 'string' ? e.effort : null, tier: typeof e.tier === 'string' ? e.tier : null, status: 'run', last: '' };
             for (const key of ['raw', 'events', 'sandbox', 'agent', 'agentVersion', 'parent'] as const)
                 if (typeof e[key] === 'string')
                     t[key] = e[key];
@@ -48,7 +48,7 @@ export function mergeLine(tasks: Map<string, Task>, line: string) {
 }
 export function parseRegistry(text: string) { const tasks = new Map<string, Task>(); for (const line of text.slice(0, text.lastIndexOf('\n') + 1).split('\n'))
     mergeLine(tasks, line); return [...tasks.values()]; }
-export function statusOf(t: Task, ps: ProcessInfo[]): Task['status'] { return t.exit !== undefined ? (t.exit === 0 ? 'done' : 'fail') : t.status === 'stop' ? 'stop' : dispatchMatches(ps.find(p => p.pid === t.pid), t.started) ? 'run' : 'stop'; }
+export function statusOf(t: Task, ps: ProcessInfo[]): Task['status'] { return t.exit !== undefined ? (t.exit === 0 ? 'done' : 'fail') : t.status === 'stop' ? 'stop' : dispatchMatches(ps.find(p => p.pid === t.pid), t.started, t.pidCreated) ? 'run' : 'stop'; }
 export class RegistryReader {
     rows = new Map<string, Task>();
     private offset = 0;
@@ -234,7 +234,7 @@ export class Registry {
     private async save() { const file = path.join(this.data, 'tasks.json'); await writeFile(file + '.tmp', JSON.stringify({ imports: this.imports, hidden: [...this.hidden] })); await rename(file + '.tmp', file); }
     import(folder: string) { return this.serial(async () => { const incoming = await importTasks(folder); this.imports = [...new Map([...this.imports, ...incoming].map(t => [t.id, t])).values()]; await this.save(); await this.refresh(); }); }
     hide(id: string) { return this.serial(async () => { await this.refresh(); const t = this.tasks.find(t => t.id === id); if (!t || t.status === 'run')
-        throw Error(c.changed); const ps = t.pid ? await this.platform.processes([t.pid]) : []; if (dispatchMatches(ps[0], t.started))
+        throw Error(c.changed); const ps = t.pid ? await this.platform.processes([t.pid]) : []; if (dispatchMatches(ps[0], t.started, t.pidCreated))
         throw Error(c.changed); this.hidden.add(this.key(t)); await this.save(); await this.refresh(); }); }
     stop(id: string) {
         return this.serial(async () => {
@@ -243,7 +243,7 @@ export class Registry {
             if (!t || t.imported || t.status !== 'run' || !t.pid)
                 throw Error(c.changed);
             const ps = await this.platform.processes([t.pid]);
-            if (!dispatchMatches(ps.find(p => p.pid === t.pid), t.started))
+            if (!dispatchMatches(ps.find(p => p.pid === t.pid), t.started, t.pidCreated))
                 throw Error(c.changed);
             await this.platform.killTree(t.pid);
             const after = await this.platform.processes([t.pid]);

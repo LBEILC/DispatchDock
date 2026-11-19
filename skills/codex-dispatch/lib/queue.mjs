@@ -1,29 +1,30 @@
-import { readFile, writeFile, rename, mkdir, open, unlink, lstat, readlink } from 'node:fs/promises';
+import { readFile, writeFile, rename, mkdir, lstat, readlink } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
-import { runProgram, checkEnvironment, reviewEnvironment } from './program.mjs';
-import { processCreated, pidAlive } from './process.mjs';
-import { homeDirectory } from './config.mjs';
+import { runProgram, checkEnvironment } from './program.mjs';
+import { ownerAlive, acquireLease } from './lease.mjs';
+import { homeDirectory, readConfig } from './config.mjs';
 import { registryWriter, recordPaths } from './records.mjs';
 import { progressHeader, progressFooter, formatProgress } from './progress.mjs';
-import { codex } from '../adapters/codex.mjs';
 import { validatePolicy, blockedPath, runCheck, within } from '../workers/workspace.mjs';
 import { validFile } from '../workers/workspace.mjs';
+import { agentSelection } from './profiles.mjs';
+import { invokeAgent, resolveActor } from './invoke.mjs';
+import { processCreated } from './process.mjs';
 
 const idPattern = /^[a-z][a-z0-9-]{0,63}$/;
 const hash = text => createHash('sha256').update(text).digest('hex');
 const json = async file => JSON.parse(await readFile(file, 'utf8'));
 const save = async (file, value) => { const temp = file + '.' + randomUUID() + '.tmp'; await writeFile(temp, JSON.stringify(value, null, 2)); await rename(temp, file); };
-const ownerAlive = async owner => {
-  if (!pidAlive(owner.pid)) return false;
-  const actual = await processCreated(owner.pid);
-  return actual === null || owner.created === null || actual === owner.created;
-};
 const schema = { type: 'object', properties: { decision: { type: 'string', enum: ['accept', 'rework', 'stop'] }, feedback: { type: 'string' } }, required: ['decision', 'feedback'], additionalProperties: false };
 
 export function validatePlan(plan) {
-  if (plan?.v !== 1 || !idPattern.test(plan.name) || !plan.worker?.model || typeof plan.worker.model !== 'string' || !Array.isArray(plan.tasks) || !plan.tasks.length || plan.tasks.length > 100) throw Error('队列计划需要 v、name、worker.model 和 1～100 个任务');
+  if (plan?.v !== 1 || !idPattern.test(plan.name) || !plan.worker || !Array.isArray(plan.tasks) || !plan.tasks.length || plan.tasks.length > 100) throw Error('队列计划需要 v、name、worker 和 1～100 个任务');
+  if (plan.reviewer !== undefined && plan.supervisor !== undefined && JSON.stringify(plan.reviewer) !== JSON.stringify(plan.supervisor)) throw Error('reviewer 与旧 supervisor 同时出现但不一致');
+  for (const [selection, fallback] of [[plan.worker, 'deepseek'], [plan.reviewer ?? plan.supervisor, 'codex'], [plan.director, 'codex']]) {
+    const actor = agentSelection(selection, fallback);
+    if (actor.model !== undefined && typeof actor.model !== 'string') throw Error('模型名称必须为字符串');
+  }
   const names = new Set();
   for (const task of plan.tasks) {
     if (!idPattern.test(task.id) || names.has(task.id) || typeof task.prompt !== 'string' || !task.prompt.trim() || typeof task.acceptance !== 'string' || !task.acceptance.trim()) throw Error('任务 ID、说明或验收条件无效');
@@ -61,55 +62,25 @@ function outsideChanges(before, after, files) {
   return [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(file => before[file] !== after[file] && !allowed.has(process.platform === 'win32' ? file.toLowerCase() : file));
 }
 
-async function reviewTask(root, task, checkResults, report, folder, supervisor, env) {
-  const schemaFile = path.join(folder, 'review-schema.json'), verdictFile = path.join(folder, 'verdict.json');
-  await save(schemaFile, schema);
-  const settings = { sandbox: 'read-only', model: supervisor?.model ?? null, effort: supervisor?.effort ?? null, tier: null, path: supervisor?.path ?? null };
-  const reviewEnv = reviewEnvironment(env);
-  const detection = codex.detect({ env: reviewEnv, settings });
-  if (!detection.installed) throw Error(detection.error || '找不到 Codex 验收执行端');
+async function reviewTask(root, task, checkResults, report, folder, supervisor, env, config) {
+  const verdictFile = path.join(folder, 'verdict.json');
   const prompt = `这是临时小任务。你在本项目中的角色是只读验收负责人。检查实际文件，不修改、提交或发布任何文件，不执行项目代码。任务：${task.prompt}\n验收条件：${task.acceptance}\n允许修改：${JSON.stringify(task.files)}\n独立检查结果：${JSON.stringify(checkResults)}\n下级汇报仅为线索，不代表通过：\n${report.slice(0, 32000)}\n请读取实际产物，判断是否完成任务和存在阻塞缺陷。只有验收条件满足且检查全通过才能 accept；可修复问题返回 rework 和具体证据；越权、范围冲突或无法自动判断返回 stop。最后只输出符合 schema 的 JSON。`;
-  const command = codex.command({ root, report: verdictFile, prompt, settings, detection, env: reviewEnv });
-  command.args.splice(command.args.length - 1, 0, '--output-schema', schemaFile, '--ephemeral');
-  const result = await runProgram(command.executable, command.args, { root, env: reviewEnv, stdin: prompt, timeoutMs: Math.min(supervisor?.timeoutMs ?? 300000, 600000) });
-  const redact = text => text.replace(/sk-[a-zA-Z0-9_-]+/g, '[redacted]');
-  const errors = result.stdout.split('\n').flatMap(line => codex.mapLine(line, { root })).filter(event => event.kind === 'error').map(event => redact(event.text));
-  await save(path.join(folder, 'review-result.json'), { code: result.code, timedOut: result.timedOut, stderr: redact(result.stderr.slice(-8000)), errors });
-  if (result.code) throw Error('Codex 验收未正常完成，队列停止，未把模型失败当作验收通过。' + (errors.at(-1)?.slice(0, 1000) ?? ''));
-  const verdict = await json(verdictFile);
-  if (!['accept', 'rework', 'stop'].includes(verdict.decision) || typeof verdict.feedback !== 'string') throw Error('Codex 验收返回无效判定');
+  const { value: verdict } = await invokeAgent({ config, selection: supervisor, fallback: 'codex', operation: 'review', prompt, root, folder, outputSchema: schema, env, timeoutMs: Math.min(supervisor?.timeoutMs ?? 300000, 600000) });
+  await save(verdictFile, verdict);
+  if (!['accept', 'rework', 'stop'].includes(verdict.decision) || typeof verdict.feedback !== 'string') throw Error('验收 AI 返回无效判定');
   return verdict;
 }
 
-export async function runQueue({ plan: input, root, scriptPath, env = process.env, resume = false, reviewer = reviewTask } = {}) {
+export async function runQueue({ plan: input, root, scriptPath, env = process.env, resume = false, initializeMissing = false, reviewer = reviewTask } = {}) {
   const plan = validatePlan(input), digest = hash(JSON.stringify(plan));
+  const configuration = readConfig(homeDirectory(env));
+  if (configuration.reason) throw Error('AI 配置文件无效：' + configuration.reason);
+  const config = configuration.config, workerActor = resolveActor(config, plan.worker, 'deepseek', env);
+  const supervisorActor = agentSelection(plan.reviewer ?? plan.supervisor, 'codex');
+  const profileHash = hash(JSON.stringify({ worker: workerActor, supervisor: resolveActor(config, plan.reviewer ?? plan.supervisor, 'codex', env) }));
   const runs = path.join(root, '.codex-runs'); await mkdir(runs, { recursive: true });
   const stateFile = path.join(runs, plan.name + '.queue.json'), lockFile = path.join(runs, '.queue-workspace.lock');
-  const created = await processCreated(process.pid);
-  let lease;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try { lease = await open(lockFile, 'wx'); break; }
-    catch (error) {
-      if (error.code !== 'EEXIST') throw error;
-      const owner = await json(lockFile);
-      if (await ownerAlive(owner)) throw Error('队列已在运行，不能重复启动');
-      if (owner.name !== plan.name) throw Error('该工作树有其他队列的中断现场，请先核对并恢复原队列');
-      if (!resume) throw Error('队列留下了中断锁，请使用 --resume 核对并恢复');
-      // 恢复操作也要互斥，不能让两个恢复者分别删掉对方新取得的锁。
-      const recoveryFile = lockFile + '.recovery';
-      let recovery;
-      try { recovery = await open(recoveryFile, 'wx'); }
-      catch (error) { if (error.code === 'EEXIST') throw Error('已有另一个恢复操作，或恢复锁需要人工核对'); throw error; }
-      try {
-        const latest = await json(lockFile);
-        if (await ownerAlive(latest)) throw Error('队列已经恢复运行');
-        await unlink(lockFile); lease = await open(lockFile, 'wx');
-      } finally { await recovery.close(); await unlink(recoveryFile); }
-      break;
-    }
-  }
-  if (!lease) throw Error('不能取得队列锁');
-  await lease.writeFile(JSON.stringify({ name: plan.name, pid: process.pid, created })); await lease.close();
+  const release = await acquireLease(lockFile, plan.name, { resume });
   let paths, registry, id, state, exit = 1, sequence = 0;
   const emit = async event => {
     const record = { ...event, v: 1, seq: ++sequence, at: Date.now() };
@@ -121,15 +92,17 @@ export async function runQueue({ plan: input, root, scriptPath, env = process.en
     let existing;
     try { existing = await json(stateFile); } catch (error) { if (error.code !== 'ENOENT') throw error; }
     if (existing && !resume) throw Error('队列已有状态；继续请显式加 --resume，或使用新名称');
-    if (resume && !existing) throw Error('没有可恢复的队列状态');
+    if (resume && !existing && !initializeMissing) throw Error('没有可恢复的队列状态');
     if (existing && existing.planHash !== digest) throw Error('队列计划已改变，不能沿用旧的验收和预算状态');
+    if (existing?.profileHash && existing.profileHash !== profileHash) throw Error('所引用的 AI 配置已改变，请恢复原配置或使用新的队列名');
     state = existing ?? { v: 1, name: plan.name, planHash: digest, started: Date.now(), status: 'pending', requests: 0, tokens: 0, reviews: 0, tasks: plan.tasks.map(task => ({ id: task.id, status: 'pending', attempts: 0, feedback: '' })) };
+    state.profileHash = profileHash;
     const deadline = state.started + plan.limits.maxMinutes * 60000;
     const timeLeft = () => Math.max(0, deadline - Date.now());
     paths = recordPaths(root, plan.name, progressHeader('队列：' + plan.name, null, Date.now()));
     await writeFile(paths.events, ''); await writeFile(paths.raw, '');
     id = paths.name + '-' + Date.now() + '-' + process.pid; registry = registryWriter(homeDirectory(env));
-    registry({ event: 'start', id, repo: root, name: paths.name, title: '队列：' + plan.name, spec: null, role: 'supervisor', pid: process.pid, started: Date.now(), progress: paths.progress, report: paths.report, raw: paths.raw, events: paths.events, model: plan.worker.model, effort: null, tier: null, agent: 'queue', dispatcher: { host: 'codex', session: null } });
+    registry({ event: 'start', id, repo: root, name: paths.name, title: '队列：' + plan.name, spec: null, role: 'supervisor', pid: process.pid, pidCreated: await processCreated(process.pid), started: Date.now(), progress: paths.progress, report: paths.report, raw: paths.raw, events: paths.events, model: workerActor.settings.model, effort: null, tier: null, agent: 'queue', dispatcher: { host: agentSelection(plan.director, 'codex').agent, session: null } });
     state.status = 'running'; state.run = paths.name; await save(stateFile, state);
     console.log(`队列：${plan.name}\n记录名：${paths.name}\n状态：${stateFile}`);
     for (let index = 0; index < plan.tasks.length; index++) {
@@ -151,6 +124,8 @@ export async function runQueue({ plan: input, root, scriptPath, env = process.en
         item.attempts++; item.status = 'preparing'; delete item.evidence; await save(stateFile, state);
         const folder = path.join(runs, plan.name + '.queue', task.id, 'attempt-' + item.attempts); await mkdir(folder, { recursive: true });
         const policyFile = path.join(folder, 'policy.json'), ledgerFile = path.join(folder, 'worker-budget.json');
+        const settingsFile = path.join(folder, 'worker-settings.json');
+        await save(settingsFile, { v: 1, agent: workerActor.actor.agent, settings: workerActor.settings });
         await save(policyFile, { v: 1, files: task.files, checks: task.checks, limits, ledger: path.relative(root, ledgerFile), ...(task.contextFiles ? { readFiles: [...task.contextFiles, ...task.files, 'AGENTS.md', ...(task.role ? [`docs/roles/${task.role}.md`] : [])] } : {}) });
         await emit({ kind: 'plan', items: state.tasks.map(value => ({ text: value.id + ' · ' + value.status, done: value.status === 'done' })) });
         const before = await workspaceSnapshot(root, env);
@@ -159,7 +134,7 @@ export async function runQueue({ plan: input, root, scriptPath, env = process.en
         const attemptName = paths.name + '-' + task.id + '-' + item.attempts;
         const prompt = `${task.prompt}\n验收条件：${task.acceptance}\n允许修改的文件：${JSON.stringify(task.files)}\n上次检查或验收的返工意见：${item.feedback || '首次执行'}\n完成修改并运行授权检查；禁止提交、推送、发布或再次派发。`;
         const workerEnv = { ...env, CODEX_NO_WATCH: '1', CODEX_DISPATCH_NO_MANAGED: '1', DISPATCH_PARENT_ID: id }; delete workerEnv.CODEX_DRY_RUN;
-        const worker = await runProgram(process.execPath, [scriptPath, prompt, '--agent', 'deepseek', '--host', 'codex', '--model', plan.worker.model, '--sandbox', 'workspace-write', '--policy', policyFile, '--name', attemptName, ...(task.role ? ['--role', task.role] : [])], { root, env: workerEnv, timeoutMs: Math.min(timeLeft(), 10 * 60000 + 10000) });
+        const worker = await runProgram(process.execPath, [scriptPath, prompt, '--agent', workerActor.actor.agent, '--settings', settingsFile, '--host', agentSelection(plan.director, 'codex').agent, ...(workerActor.settings.model ? ['--model', workerActor.settings.model] : []), '--sandbox', 'workspace-write', '--policy', policyFile, '--name', attemptName, ...(task.role ? ['--role', task.role] : [])], { root, env: workerEnv, timeoutMs: Math.min(timeLeft(), 10 * 60000 + 10000) });
         let ledger;
         try { ledger = await json(ledgerFile); } catch { /* 缺失的用量保留全部预留，不假定零费用。 */ }
         if (ledger?.complete && !ledger.uncertain && Number.isInteger(ledger.requests) && ledger.requests >= 0 && Number.isInteger(ledger.tokens) && ledger.tokens >= 0) { state.requests += ledger.requests - limits.maxRequests; state.tokens += ledger.tokens - limits.maxTokens; }
@@ -183,7 +158,7 @@ export async function runQueue({ plan: input, root, scriptPath, env = process.en
         item.status = 'reviewing'; state.reviews++; await save(stateFile, state);
         let report = ''; try { report = await readFile(path.join(runs, attemptName + '.md'), 'utf8'); } catch { /* 缺汇报由验收决定，不假造成功。 */ }
         const reviewBefore = await workspaceSnapshot(root, env);
-        const verdict = await reviewer(root, task, results, report, folder, { ...plan.supervisor, timeoutMs: Math.min(plan.supervisor?.timeoutMs ?? 300000, timeLeft()) }, env);
+        const verdict = await reviewer(root, task, results, report, folder, { ...supervisorActor, timeoutMs: Math.min(supervisorActor.timeoutMs ?? 300000, timeLeft()) }, env, config);
         if (outsideChanges(reviewBefore, await workspaceSnapshot(root, env), []).length) throw Error('验收执行端修改了工作区，停止自动流程');
         item.feedback = verdict.feedback; item.status = verdict.decision === 'accept' ? 'done' : verdict.decision === 'rework' ? 'rework' : 'blocked';
         await emit({ kind: 'say', text: `${task.id} 验收：${verdict.decision} · ${verdict.feedback}` });
@@ -198,7 +173,7 @@ export async function runQueue({ plan: input, root, scriptPath, env = process.en
     if (state.tasks.every(task => task.status === 'done')) { state.status = 'done'; exit = 0; }
     else if (state.status === 'running') state.status = 'failed';
     await save(stateFile, state);
-    await writeFile(paths.report, `# 队列 ${plan.name}\n\n状态：${state.status}\n\n${state.tasks.map(task => `- ${task.id}: ${task.status}，尝试 ${task.attempts} 次\n  ${task.feedback}`).join('\n')}\n\n用量（含未知请求的保守预留）：请求 ${state.requests}，token ${state.tokens}，Codex 验收 ${state.reviews} 次。\n`);
+    await writeFile(paths.report, `# 队列 ${plan.name}\n\n状态：${state.status}\n\n${state.tasks.map(task => `- ${task.id}: ${task.status}，尝试 ${task.attempts} 次\n  ${task.feedback}`).join('\n')}\n\n用量（含未知请求的保守预留）：请求 ${state.requests}，token ${state.tokens}，AI 验收 ${state.reviews} 次。\n`);
     return exit;
   } catch (error) {
     if (state) { state.status = 'blocked'; state.error = error.message; await save(stateFile, state); }
@@ -206,7 +181,7 @@ export async function runQueue({ plan: input, root, scriptPath, env = process.en
     throw error;
   } finally {
     if (paths && registry) { const minutes = (Date.now() - (state?.started ?? Date.now())) / 60000; const { appendFile } = await import('node:fs/promises'); await appendFile(paths.progress, progressFooter(exit, minutes.toFixed(1), paths.report)); registry({ event: 'end', id, exit, at: Date.now(), minutes }); }
-    await unlink(lockFile).catch(error => { if (error.code !== 'ENOENT') throw error; });
+    await release();
   }
 }
 

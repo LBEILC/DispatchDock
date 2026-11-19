@@ -8,6 +8,7 @@ export interface Task {
     spec: string | null;
     role: string | null;
     pid: number;
+    pidCreated?: number;
     started: number;
     progress: string;
     report: string;

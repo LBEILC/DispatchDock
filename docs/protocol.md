@@ -204,3 +204,11 @@ node codex-task.mjs --stop <记录名>
 - 10 秒后仍有进程没退出：不写记录，打印 `停止：<记录名> 没能停下（<原因>）`，退出码 1。
 - 托管任务的等待者读到这条 `interrupted`，按第 7 节第 5 条以 1 退出。
 - 派发脚本自己收到 `SIGINT` 等信号时，退出前同样先结束干活方的进程树，再写 `interrupted`（`signal` 为信号名）。
+
+## 通用工作流的可选扩展
+
+`start.pidCreated` 可记录宿主进程创建时间（Unix 毫秒），读取方以它核对 PID 复用；缺失时沿用旧行为。长时间规划后的队列仍使用真实 `started`，不伪造任务开始时间。派发入口可为 `codex-task.mjs` 或 `dispatch.mjs`。
+
+`config.agents.<名称>` 可有 `adapter`（codex/chat-completions/bridge）、`api:{baseUrl,apiKeyEnv,parameters?}`、`credentialEnv` 和内部快照用 `credentialDenyEnv`。保留已有模型、路径和参数字段；配置不存密钥值。worker 快照包含连接信息和凭据变量名，不包含变量值。`agents import` 会先备份已有配置并原子替换，重名默认拒绝。
+
+`<name>.workflow.json` 固化目标摘要与采纳计划，`<name>.queue.json` 保留任务完成/尝试/预算与配置摘要；工作流锁与工作树队列锁防止重复运行。CLI 和 JS API 见 [流程](ai-workflow.md)。这些内部状态不改变原有 v1 JSONL 读取语义。

@@ -42,6 +42,10 @@
 | `app/design/`（视觉稿、设计令牌）、界面文案文件 | 设计 |
 | `app/` 其余部分、`installer/`、`tests/`、`tools/`、`package.json`、构建与打包配置 | 工程 |
 
+## 通用工作流入口
+
+任意 AI 的规划、执行、验收选择见 `docs/ai-workflow.md`；CLI 是 `skills/codex-dispatch/dispatch.mjs`，JS API 是同目录 `index.mjs`。配置和模型由调用方明确指定，`--host` 只用于来源标记。
+
 ## 文档地图
 
 - 需求与范围：`docs/requirements.md`

@@ -1,5 +1,7 @@
 # 通用派发与 DeepSeek 执行端
 
+推荐先读 [完整流程](ai-workflow.md)：一次注册连接，通过 `dispatch.mjs` 或 JS API 任意选择规划、执行与验收角色。本文详述兼容入口与桥接契约。
+
 上级负责描述任务、读取汇报并验收；执行端负责完成任务，监控软件负责进度和生命周期。上级和执行端不必使用同一种模型。现有默认行为仍然是派给 Codex CLI，原来的命令不用修改。
 
 ## 由任意上级派发
@@ -81,3 +83,7 @@ Windows 使用本机绝对路径。`path` 为可执行文件或 Node 的 `.mjs/.
 - [DeepSeek Tool Calls](https://api-docs.deepseek.com/guides/tool_calls/)：执行程序实现文件工具并把结果传回模型；本执行端只读，不照搬天气示例代码。
 - [OpenCode CLI](https://opencode.ai/docs/cli/) 与 [Providers](https://opencode.ai/docs/providers/)：可作为完整编码执行端候选，已有非交互运行和多提供方能力；当前未安装或接入，不声明其已可用。通用桥接协议让后续接入无需把完整编码运行时复制进 DispatchDock。
 - 优先复用项目现有的适配器、生命周期和统一事件，不新增框架依赖。服务商的接口兼容、当前模型和 Codex 账户权限需先用小任务验证，短时验证不等于已完成整夜稳定性测试。
+
+## 通用桥接操作
+
+stdin 在原有 `v/repo/prompt/settings` 之外可有 `operation`（`plan/execute/review`）与 `outputSchema`。settings 可包含 `api:{baseUrl,apiKeyEnv,parameters?}` 与 `policy`（文件路径或策略对象）；密钥值仍通过环境传入。规划/验收使用 read-only，桥接需落实约束，并返回符合 schema 的最终 `say.text`。`review` 的 decision 为 accept/rework/stop。请求失败必须非零退出；未知操作不得假成功。模板见 [bridge-template.mjs](../skills/codex-dispatch/examples/bridge-template.mjs)。

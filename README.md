@@ -10,6 +10,12 @@
 
 ![任务页：左边是任务列表，右边是选中任务的计划和进展时间线](docs/images/tasks-dark.png)
 
+## 自选上下级 AI，自动验收返工
+
+配置 `director`（规划）、`worker`（执行）、`reviewer`（验收）三个 AI 名称，就能从一个目标运行到文件修改、独立检查、验收与有上限的返工。支持兼容 API、原生 Codex 配置和自定义 CLI/SDK 桥接。连接只配置一次，之后复用工作流调用。
+
+从 [完整流程与可直接调用的命令](docs/ai-workflow.md) 开始；[连接示例](skills/codex-dispatch/examples/agents.example.json) · [工作流示例](skills/codex-dispatch/examples/workflow.example.json)。这是源码 CLI/JS 能力，当前发布版的安装与界面范围见下文。
+
 ## 这是什么
 
 你在 Claude Code 里和模型讨论、做决定；能写清楚要求的执行工作，让它派给 Codex CLI 在后台去做。DispatchDock 管两件事：

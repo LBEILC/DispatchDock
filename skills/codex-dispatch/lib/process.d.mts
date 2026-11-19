@@ -4,6 +4,7 @@ export interface ListedProcess {
     created: number;
     command: string;
 }
+export function isDispatchCommand(command: string): boolean;
 
 export function processList(pid?: number, platform?: NodeJS.Platform, timeout?: number): Promise<ListedProcess[]>;
 export function killProcessTree(pid: number, options?: {

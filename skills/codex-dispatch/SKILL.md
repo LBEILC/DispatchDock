@@ -1,12 +1,18 @@
 ---
 name: codex-dispatch
-description: 把一项工作（任务说明文件，或直接一段任务文字）派给 Codex CLI 在后台执行，让用户能实时看到进度（监控软件，或自动弹出的只读窗口）；之后监控进度、读汇报、审查结果。本身不带角色，需要时用 --role 指定。用于"交给 Codex 做"、"用 codex 跑这个"一类工作。
+description: 可选择任意已配置的规划、执行和验收 AI，以 workflow 运行目标、固定检查与自动返工；也可把一项工作（任务说明文件，或直接一段任务文字）派给 Codex CLI 在后台执行，让用户能实时看到进度（监控软件，或自动弹出的只读窗口）；之后监控进度、读汇报、审查结果。本身不带角色，需要时用 --role 指定。用于"交给 Codex 做"、"用 codex 跑这个"一类工作。
 argument-hint: "<任务说明路径 | 任务文字> [补充说明] [--role <角色文档名>] [--name <记录名>]"
 allowed-tools:
   - Read
   - Grep
   - Glob
 ---
+
+# 通用派发与默认 Codex 入口
+
+需要指定任意上下级 AI 或自动规划/验收/返工时，先读本技能附带的 `WORKFLOW.md`（源码仓库的 `docs/ai-workflow.md` 有完整说明）。在目标仓库用 `node <本技能目录>/dispatch.mjs workflow <工作流.json>`；配置名由调用方指定，不能根据自己是什么模型推断角色。`agents import` 注册连接，`director/worker/reviewer` 分别选择。已有固定计划用 `run`，直接派一项用 `task ... --agent <配置名>`。`--host` 只记来源，不会调用上级 AI。保持 CLI 宿主存活，读取返回状态和证据，不把启动成功当任务完成。
+
+下文保留原有默认 Codex 单任务用法。
 
 # 派发工作给 Codex CLI
 

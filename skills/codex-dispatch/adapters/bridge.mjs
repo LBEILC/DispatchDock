@@ -24,8 +24,8 @@ export function bridgeEvents(line) {
 }
 
 export function selectAdapter(id, settings) {
-  if (id === 'codex') return codex;
-  const builtin = id === 'deepseek' && !settings.path;
+  if (settings.adapter === 'codex' || (!settings.adapter && id === 'codex')) return { ...codex, id };
+  const builtin = settings.adapter === 'chat-completions' || (id === 'deepseek' && !settings.path && !settings.adapter);
   const executable = builtin ? process.execPath : settings.path;
   const args = builtin ? [fileURLToPath(new URL('../workers/deepseek.mjs', import.meta.url))] : settings.args;
   return {
@@ -39,7 +39,7 @@ export function selectAdapter(id, settings) {
       if (detection?.error) throw Error(detection.error);
       const nodeEntry = /\.(mjs|cjs|js)$/i.test(executable);
       return { executable: nodeEntry ? process.execPath : executable, args: [...(nodeEntry ? [executable] : []), ...(args ?? [])],
-        stdin: JSON.stringify({ v: 1, repo: root, prompt, settings: { ...Object.fromEntries(['model', 'effort', 'tier', 'sandbox'].map(key => [key, settings[key]])), ...(settings.policy ? { policy: JSON.parse(readFileSync(settings.policy, 'utf8')) } : {}) } }) + '\n' };
+        stdin: JSON.stringify({ v: 1, repo: root, prompt, operation: settings.operation ?? 'execute', outputSchema: settings.outputSchema ?? null, settings: { ...Object.fromEntries(['model', 'effort', 'tier', 'sandbox'].map(key => [key, settings[key]])), ...(settings.api ? { api: settings.api } : {}), ...(settings.policy ? { policy: typeof settings.policy === 'string' ? JSON.parse(readFileSync(settings.policy, 'utf8')) : settings.policy } : {}) } }) + '\n' };
     },
     mapLine: bridgeEvents,
   };
