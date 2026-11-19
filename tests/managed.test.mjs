@@ -149,6 +149,25 @@ async function requestFrom(f) {
   });
 }
 
+test('通用执行端托管保留 agent、父任务与参数快照，不写入密钥', async t => {
+  const f = await fixture(t), worker = path.join(f.base, 'bridge-worker.mjs');
+  fs.writeFileSync(worker, `let input='';for await(const chunk of process.stdin)input+=chunk;console.log(JSON.stringify({kind:'say',text:JSON.stringify({request:JSON.parse(input),args:process.argv.slice(2),parent:process.env.DISPATCH_PARENT_ID})}));`);
+  fs.writeFileSync(f.configFile, JSON.stringify({ v: 1, managed: true, watchWindow: 'never', agents: { example: { path: worker, args: ['snapshot'], model: 'original' } } }));
+  const waiter = f.launch(f.script, ['隔离任务', '--name', 'generic-managed', '--agent', 'example', '--host', 'codex', '--parent', 'upper-task'], { DEEPSEEK_API_KEY: 'fake-secret-not-persisted' });
+  const file = await requestFrom(f), request = json(file);
+  assert.equal(request.agent, 'example'); assert.equal(request.parent, 'upper-task');
+  assert.deepEqual(request.settings.args, ['snapshot']);
+  assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /fake-secret-not-persisted/);
+  fs.writeFileSync(f.configFile, JSON.stringify({ v: 1, managed: true, agents: { example: { path: '/missing', args: ['changed'], model: 'changed' } } }));
+  const { errors } = await f.service(), result = await waiter.done;
+  assert.equal(result.code, 0, result.stderr + result.stdout);
+  const start = rows(f.home).find(row => row.event === 'start');
+  assert.equal(start.managed, true); assert.equal(start.agent, 'example'); assert.equal(start.parent, 'upper-task');
+  const echo = json(start.report);
+  assert.equal(echo.request.settings.model, 'original'); assert.deepEqual(echo.args, ['snapshot']); assert.equal(echo.parent, start.id);
+  assert.deepEqual(errors, []);
+});
+
 for (const [label, app, expected] of [
   ['默认名字', 'DispatchDock', 'DispatchDock'],
   ['其他名字', '  示例监控器  ', '示例监控器'],

@@ -1,12 +1,18 @@
 ---
 name: codex-dispatch
-description: 把一项工作（任务说明文件，或直接一段任务文字）派给 Codex CLI 在后台执行，让用户能实时看到进度（监控软件，或自动弹出的只读窗口）；之后监控进度、读汇报、审查结果。本身不带角色，需要时用 --role 指定。用于"交给 Codex 做"、"用 codex 跑这个"一类工作。
+description: 可选择任意已配置的规划、执行和验收 AI，以 workflow 运行目标、固定检查与自动返工；也可把一项工作（任务说明文件，或直接一段任务文字）派给 Codex CLI 在后台执行，让用户能实时看到进度（监控软件，或自动弹出的只读窗口）；之后监控进度、读汇报、审查结果。本身不带角色，需要时用 --role 指定。用于"交给 Codex 做"、"用 codex 跑这个"一类工作。
 argument-hint: "<任务说明路径 | 任务文字> [补充说明] [--role <角色文档名>] [--name <记录名>]"
 allowed-tools:
   - Read
   - Grep
   - Glob
 ---
+
+# 通用派发与默认 Codex 入口
+
+需要指定任意上下级 AI 或自动规划/验收/返工时，先读本技能附带的 `WORKFLOW.md`（源码仓库的 `docs/ai-workflow.md` 有完整说明）。在目标仓库用 `node <本技能目录>/dispatch.mjs workflow <工作流.json>`；配置名由调用方指定，不能根据自己是什么模型推断角色。`agents import` 注册连接，`director/worker/reviewer` 分别选择。已有固定计划用 `run`，直接派一项用 `task ... --agent <配置名>`。`--host` 只记来源，不会调用上级 AI。保持 CLI 宿主存活，读取返回状态和证据，不把启动成功当任务完成。
+
+下文保留原有默认 Codex 单任务用法。
 
 # 派发工作给 Codex CLI
 
@@ -15,6 +21,10 @@ allowed-tools:
 下文的 `<技能目录>` 指本文件所在目录的绝对路径，派发脚本是其中的 `codex-task.mjs`。
 
 ## 用法
+
+除默认 Codex CLI 外，入口支持 `--agent deepseek` 或已配置的桥接执行端；`--host` 记录上级，`--parent` 关联父任务。内置 DS 默认只读，明确授权修改时必须提供 `--sandbox workspace-write --policy <策略.json>`，列出允许文件与固定检查。接口需要环境变量 `DEEPSEEK_API_KEY` 和明确模型 ID，不把密钥写入任务或日志。契约见本技能的 `adapters/README.md`。
+
+需要上级 Codex 持续指挥 DS 时，先按已授权目标准备明确的队列计划：逐项写清 prompt、acceptance、files、checks，并设总时限、请求/token/验收次数和返工上限。用 `--queue <计划.json>` 启动；队列独立检查并调用只读 Codex 验收，失败后限次返工。用 `--queue-status` 查看，`--resume` 恢复同一计划；用输出的记录名 `--stop` 停止整棵当前进程树。不要用整夜无限循环替代验收，不自动扩大修改范围，完成后即停止。宿主进程必须保持存活；上级已有授权直接沿用。
 
 ```
 node "<技能目录>/codex-task.mjs" <任务说明文件 | "任务文字"> ["补充说明"] [选项]

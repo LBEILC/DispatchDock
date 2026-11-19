@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { findStart, findTerminal } from './wait.mjs';
-import { processInfo, taskAlive, killProcessTree } from './process.mjs';
+import { processInfo, taskAlive, killProcessTree, isDispatchCommand } from './process.mjs';
 import { registryWriter } from './records.mjs';
 
 export async function stopTask(home, root, name, { info = processInfo, alive = taskAlive, killTree = killProcessTree, log = console.log } = {}) {
@@ -9,7 +9,7 @@ export async function stopTask(home, root, name, { info = processInfo, alive = t
   const ended = () => { log(`停止：${name}（已经结束）`); return 0; };
   if (findTerminal(file, start.id)) return ended();
   const identity = await info(start.pid);
-  const matches = identity && Number.isFinite(identity.created) && identity.command.includes('codex-task.mjs')
+  const matches = identity && Number.isFinite(identity.created) && isDispatchCommand(identity.command)
     && await alive(start, { created: async () => identity.created });
   if (findTerminal(file, start.id)) return ended();
   if (!matches) { log(`停止：${name} 的进程已经不在了`); return 1; }

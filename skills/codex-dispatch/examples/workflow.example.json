@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "name": "parser-maintenance",
+  "goal": "修复空输入解析并补充错误信息，保留现有正常输入行为",
+  "director": "lead",
+  "worker": "builder",
+  "reviewer": "judge",
+  "files": ["src/parser.mjs"],
+  "contextFiles": ["src/parser.mjs", "tests/parser.test.mjs"],
+  "checks": [{ "name": "parser-tests", "executable": "@node", "args": ["--test", "tests/parser.test.mjs"], "timeoutMs": 60000 }],
+  "limits": { "maxMinutes": 480, "maxAttempts": 3, "maxRequests": 120, "maxTokens": 600000, "maxReviews": 20, "attemptRequests": 12, "attemptTokens": 100000 }
+}

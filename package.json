@@ -7,6 +7,7 @@
   "repository": "https://github.com/LBEILC/DispatchDock",
   "type": "module",
   "scripts": {
+    "dispatch": "node skills/codex-dispatch/dispatch.mjs",
     "verify": "tsc --noEmit && node tools/verify-monitor.mjs && node --test",
     "verify:task-list": "npm run build && electron tools/verify-task-list.mjs",
     "verify:settings": "npm run build && node tools/verify-settings-run.mjs",

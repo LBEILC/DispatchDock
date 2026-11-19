@@ -39,9 +39,15 @@
 
 - `interrupted` 的 `signal`：派发脚本收到的信号名（`SIGINT`、`SIGTERM`、`SIGBREAK`、`SIGHUP`）；`stopped-by-app`（在监控软件里停止）；`stopped-by-command`（派发脚本的 `--stop`，见第 9 节）。其他读取方可能写自己的值，读取方不认识的值一律按"中断"处理。
 - `model` / `effort` / `tier` 在没有覆盖、交给干活方自己配置时写 `null`。旧的读取方显示时可能出现空白，这是可以接受的退化。
-- `dispatcher`：`{ "host": "claude-code" | "devin" | "unknown", "session": <宿主会话 ID 或 null> }`。识别顺序：命令行 `--host` > 环境变量 `CLAUDECODE=1`（Claude Code，会话取 `CLAUDE_CODE_SESSION_ID`）> 脚本路径含 `devin`（Devin 的技能目录）> `unknown`。Devin 没有可用的会话 ID 环境变量，`session` 写 null。会话 ID 只写进本机清单，不进任何仓库文件。
+- `dispatcher`：`{ "host": <派活方标识>, "session": <宿主会话 ID 或 null> }`。标识规则见下方通用执行端扩展。识别顺序：命令行 `--host` > 环境变量 `CLAUDECODE=1`（Claude Code，会话取 `CLAUDE_CODE_SESSION_ID`）> `CODEX_THREAD_ID`（Codex）> 脚本路径含 `devin`（Devin 的技能目录）> `unknown`。Devin 和自定义上级没有可用的会话 ID 时，`session` 写 null。会话 ID 只写进本机清单，不进任何仓库文件。
 
 ## 3. 每个任务的文件
+
+### 通用执行端扩展
+
+`start.agent` 可以是 `codex`、`deepseek` 或配置的桥接执行端标识；省略时旧记录仍视为 Codex。`dispatcher.host` 允许小写字母开头、包含小写字母/数字/连字符的标识（最长 64 字符），不再限于两个宿主。`start.parent` 是可选的父任务 ID，不改变既有状态语义。监控参数页显示实际执行端与父 ID。
+
+托管请求可增加 `agent`、`parent`，`settings` 可增加字符串数组 `args`。缺少 `agent` 时仍为 Codex；`args` 只传参数数组，不使用 shell 求值。请求不携带 API 密钥，执行端继承软件进程的环境。公共目录、文件后缀、日志首尾兼容格式及既有字段保持不变。完整使用契约见 [通用派发](generic-workers.md)。
 
 都在 `<仓库>/.codex-runs/` 下，`<name>` 是记录名。
 
@@ -198,3 +204,11 @@ node codex-task.mjs --stop <记录名>
 - 10 秒后仍有进程没退出：不写记录，打印 `停止：<记录名> 没能停下（<原因>）`，退出码 1。
 - 托管任务的等待者读到这条 `interrupted`，按第 7 节第 5 条以 1 退出。
 - 派发脚本自己收到 `SIGINT` 等信号时，退出前同样先结束干活方的进程树，再写 `interrupted`（`signal` 为信号名）。
+
+## 通用工作流的可选扩展
+
+`start.pidCreated` 可记录宿主进程创建时间（Unix 毫秒），读取方以它核对 PID 复用；缺失时沿用旧行为。长时间规划后的队列仍使用真实 `started`，不伪造任务开始时间。派发入口可为 `codex-task.mjs` 或 `dispatch.mjs`。
+
+`config.agents.<名称>` 可有 `adapter`（codex/chat-completions/bridge）、`api:{baseUrl,apiKeyEnv,parameters?}`、`credentialEnv` 和内部快照用 `credentialDenyEnv`。保留已有模型、路径和参数字段；配置不存密钥值。worker 快照包含连接信息和凭据变量名，不包含变量值。`agents import` 会先备份已有配置并原子替换，重名默认拒绝。
+
+`<name>.workflow.json` 固化目标摘要与采纳计划，`<name>.queue.json` 保留任务完成/尝试/预算与配置摘要；工作流锁与工作树队列锁防止重复运行。CLI 和 JS API 见 [流程](ai-workflow.md)。这些内部状态不改变原有 v1 JSONL 读取语义。

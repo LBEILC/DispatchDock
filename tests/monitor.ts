@@ -147,3 +147,11 @@ test('消失超过三秒仍无结束记录才判为中断',async()=>{
   try {await registry.start();assert.equal(registry.tasks[0].status,'run');await new Promise(r=>setTimeout(r,3100));await registry.refresh();assert.equal(registry.tasks[0].status,'stop');}
   finally {await registry.close();}
 });
+
+test('通用工作流使用宿主创建时间核对长时间规划与 PID 复用', () => {
+    const t = parseRegistry(lines({ ...row(), pidCreated: 1 }))[0];
+    const host = { ...ps, command: 'node dispatch.mjs workflow job.json', created: 1 };
+    assert.equal(statusOf(t, [host]), 'run');
+    assert.equal(statusOf(t, [{ ...host, created: 2 }]), 'stop');
+    assert.equal(dispatchMatches({ ...host, command: 'node not-dispatch.mjs' }, t.started, 1), false);
+});

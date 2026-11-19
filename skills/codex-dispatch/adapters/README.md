@@ -1,10 +1,22 @@
 # 干活方适配器
 
+任意角色配置和调用入口见源码仓库 [完整流程](../../../docs/ai-workflow.md)。`chat-completions` 配置与原生 `codex` 别名均可担任规划、执行和验收；下文保留原有入口示例。
+
 技能只依赖 Node 24 内置模块。分发时复制整个 `codex-dispatch/`，保留 `lib/`、`adapters/` 和入口的相对位置。
 
-当前入口只接入 `codex`。公共层处理参数、配置、记录名、清单、进度、窗口和生命周期；适配器只处理检测、启动参数及原始事件映射。不要在公共层再次判断 Codex 的事件类型。
+默认入口接入 `codex`；`--agent deepseek` 使用内置 API 执行端（默认只读），其他标识使用配置的桥接程序。公共层处理参数、配置、记录名、清单、进度、窗口和生命周期；适配器只处理检测、启动参数及原始事件映射。不要在公共层再次判断 Codex 的事件类型。桥接 stdin 和事件协议见 [通用执行端](../../../docs/generic-workers.md)。
 
 ## 接口
+
+### 通用执行端快速使用
+
+在目标仓库运行 `node <技能目录>/codex-task.mjs "任务" --host codex --agent deepseek --model <模型ID> --sandbox read-only`。内置 DeepSeek 从环境读取 `DEEPSEEK_API_KEY`，默认只读；显式的 `workspace-write --policy <策略.json>` 可修改 `files` 列出的文件、精确替换文本并运行 `checks` 列出的检查，不能构造任意命令。默认最多 12 次请求、32 次工具调用、单轮 8192 输出 token、10 分钟；请求计数包含重试，达到限制非零退出。模型 ID 也可通过 `DEEPSEEK_MODEL` 指定。托管时密钥必须在监控软件启动环境中，不会写进请求文件。
+
+`--queue <计划.json>` 顺序运行任务、独立检查并让 Codex 以 schema 返回 accept/rework/stop；`--queue-status <名称>` 查看状态；`--queue <同一计划> --resume` 恢复且不清零预算。任务卡包含 id、prompt、acceptance、files、checks，可选 role（仓库角色文档名）；检查至少一项，程序为绝对路径或 `@node`，参数数组不经 shell。总限额为 limits.maxMinutes/maxAttempts/maxRequests/maxTokens/maxReviews，每次 DS 尝试由 attemptRequests/attemptTokens 限制。队列本身需要可靠存活的 CLI 宿主；用输出的记录名 `--stop` 停止当前进程树。完整计划格式见源码仓库 `docs/night-queue.md`，队列不自行提交、推送或发布。
+
+其他执行端在公共 `config.json` 中配置 `agents.<标识> = {"path":"绝对可执行文件或Node入口路径","args":["字面参数"],"model":"模型ID","sandbox":"read-only"}`，再用 `--agent <标识>` 选择。参数不经 shell，拒绝 `.cmd/.bat/.ps1` 包装。执行端从 stdin 读取一份 `{"v":1,"repo":"绝对仓库路径","prompt":"任务","settings":{"model":null,"effort":null,"tier":null,"sandbox":"read-only"}}`，向 stdout 逐行输出下表的统一事件；公共层补充 `v/seq/at`。最后一条 `say` 为汇报，失败必须非零退出。`sandbox` 由执行端落实，公共层不为任意程序提供 OS 沙箱。完整说明在源码仓库的 `docs/generic-workers.md`。
+
+`--parent <父任务ID>` 写入关联。每个执行端获得 `DISPATCH_PARENT_ID=<本任务ID>`，它再次派发时会自动继承；只有关联，不授予再次派发权限、不提供自动调度，也不会级联停止独立托管的任务。`--wait`、`--stop` 和记录路径与原来相同。
 
 | 成员 | 约定 |
 |---|---|

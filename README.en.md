@@ -12,6 +12,12 @@
 
 > The app's interface is in Chinese for now. The skills are written in Chinese too; the agents that read them work fine in any language.
 
+## Choose planning, execution and review agents
+
+Select named `director`, `worker`, and `reviewer` connections to run a goal through planning, file edits, independent checks and bounded rework. Connections support compatible APIs, native Codex aliases and custom CLI/SDK bridges. Configure once and reuse.
+
+Start with the [workflow and invocation guide](docs/ai-workflow.en.md), [connection example](skills/codex-dispatch/examples/agents.example.json), and [workflow example](skills/codex-dispatch/examples/workflow.example.json). These are source-level CLI/JS features; the released app and installation scope are described below.
+
 ## What it is
 
 You talk things through with a model in Claude Code and make the decisions. Execution work that can be clearly specified gets dispatched to Codex CLI to run in the background. DispatchDock covers both sides of that:
@@ -100,6 +106,10 @@ node <codex-dispatch skill folder>/codex-task.mjs --config
 With no arguments it shows the current values. Pass `model=<name>`, `effort=high` and so on to change them; use `-` as the value to go back to following Codex.
 
 ## How it works
+
+### Generic workers (CLI)
+
+Use `--host <supervisor-id> --agent <worker-id>` to dispatch across agents; the default remains Codex CLI. DeepSeek defaults to read-only and can edit explicitly allowed files under a supplied policy. `--queue` adds persistent tasks, independent checks, and Codex acceptance/rework; `--parent` records task relationships. Skill installation in the Connections page is unchanged. See the [generic worker guide](docs/generic-workers.md) and [night queue guide](docs/night-queue.md) for contracts, credentials, budgets and lifecycle requirements.
 
 The skills and the app never talk over the network. They share a few local files:
 

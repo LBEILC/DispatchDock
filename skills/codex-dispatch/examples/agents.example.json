@@ -1,0 +1,19 @@
+{
+  "agents": {
+    "lead": {
+      "adapter": "chat-completions",
+      "model": "your-planning-model",
+      "api": { "baseUrl": "https://provider-a.example/v1", "apiKeyEnv": "LEAD_API_KEY" }
+    },
+    "builder": {
+      "adapter": "chat-completions",
+      "model": "your-execution-model",
+      "api": { "baseUrl": "https://provider-b.example/v1", "apiKeyEnv": "BUILDER_API_KEY" }
+    },
+    "judge": {
+      "adapter": "chat-completions",
+      "model": "your-review-model",
+      "api": { "baseUrl": "https://provider-c.example/v1", "apiKeyEnv": "JUDGE_API_KEY" }
+    }
+  }
+}

@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { appendFileSync, writeFileSync, readFileSync, renameSync } from 'node:fs';
 import { relative, resolve as resolvePath } from 'node:path';
 import { createInterface } from 'node:readline';
-import { configCommand, homeDirectory, loadConfig } from './config.mjs';
+import { configCommand, homeDirectory, loadConfig, resolveSettings } from './config.mjs';
 import { dispatcher, parseArgs, taskDetails } from './options.mjs';
 import { recordPaths, registryWriter } from './records.mjs';
 import { clip, formatProgress, progressFooter, progressHeader } from './progress.mjs';
@@ -13,8 +13,14 @@ import { waitForTask } from './wait.mjs';
 import { stopTask } from './stop.mjs';
 import { killProcessTree } from './process.mjs';
 import { canonicalPath } from './paths.mjs';
+import { selectAdapter } from '../adapters/bridge.mjs';
+import { agentEnvironment } from './profiles.mjs';
 
 export async function run({ adapter, scriptPath, args = process.argv.slice(2), env = process.env, root = process.cwd() }) {
+  if (args[0] === '--queue' || args[0] === '--queue-status') {
+    const { queueCommand } = await import('./queue.mjs');
+    return queueCommand({ args, env, root, scriptPath });
+  }
   if (args[0] === '--stop') {
     if (args.length !== 2 || !args[1] || args[1].startsWith('--')) throw Error('用法：node codex-task.mjs --stop <记录名>');
     return stopTask(homeDirectory(env), root, args[1]);
@@ -34,7 +40,7 @@ export async function run({ adapter, scriptPath, args = process.argv.slice(2), e
   const request = requestFile ? JSON.parse(readFileSync(requestFile, 'utf8')) : null;
   if (request && !validRequest(request)) throw Error('请求文件无效');
   if (request) root = request.repo;
-  const parsed = request ? { task: request.args.task, extra: request.args.extra, opts: { name: request.name, ...(request.args.role ? { role: request.args.role } : {}) } } : parseArgs(args);
+  const parsed = request ? { task: request.args.task, extra: request.args.extra, opts: { name: request.name, agent: request.agent ?? 'codex', ...(request.parent ? { parent: request.parent } : {}), ...(request.args.role ? { role: request.args.role } : {}) } } : parseArgs(args);
   const details = taskDetails(root, parsed);
   const dryRun = !request && !!env.CODEX_DRY_RUN;
   const started = Date.now();
@@ -47,7 +53,17 @@ export async function run({ adapter, scriptPath, args = process.argv.slice(2), e
   console.log(`记录名：${paths.name}\n进度：${paths.progress}`);
   const home = homeDirectory(env);
   const registry = registryWriter(home);
-  const { settings, warning, config } = request ? { settings: { ...request.settings, watchWindow: 'never' }, warning: null, config: {} } : loadConfig(home, parsed.opts, env);
+  const agent = parsed.opts.agent ?? 'codex';
+  let loaded;
+  if (parsed.opts.settings && !request) {
+    const snapshot = JSON.parse(readFileSync(resolvePath(root, parsed.opts.settings), 'utf8'));
+    if (snapshot.v !== 1 || snapshot.agent !== agent || !snapshot.settings || typeof snapshot.settings !== 'object') throw Error('AI 配置快照无效');
+    loaded = { ...resolveSettings({ agents: { [agent]: snapshot.settings }, watchWindow: 'never' }, { ...parsed.opts, agent }, {}), warning: null, config: {} };
+  }
+  const { settings, warning, config } = request ? { settings: { ...request.settings, watchWindow: 'never' }, warning: null, config: {} } : loaded ?? loadConfig(home, parsed.opts, env);
+  if (parsed.opts.policy) settings.policy = resolvePath(root, parsed.opts.policy);
+  const parent = parsed.opts.parent ?? env.DISPATCH_PARENT_ID ?? null;
+  adapter ??= selectAdapter(agent, settings);
   writeFileSync(paths.raw, '');
   writeFileSync(paths.events, '');
   const interactive = !!process.stdout.isTTY;
@@ -60,24 +76,25 @@ export async function run({ adapter, scriptPath, args = process.argv.slice(2), e
   if (request) progress(managedMessage(request.app));
   const id = request?.id ?? `${paths.name}-${started}-${process.pid}`;
   const source = request?.dispatcher ?? dispatcher(parsed.opts.host, env, scriptPath);
-  if (!request && acceptsManaged(home, config.managed === true)) {
+  if (!request && env.CODEX_DISPATCH_NO_MANAGED !== '1' && acceptsManaged(home, config.managed === true)) {
     const app = viewerApp(home);
     const announce = text => { if (text === managedMessage(app)) console.log(text); else { progress(text); if (!interactive) console.log(text); } };
-    const result = await handoff(home, { v: 1, id, app, at: started, script: scriptPath, node: process.execPath, repo: root, name: paths.name,
+    const result = await handoff(home, { v: 1, id, app, at: started, script: scriptPath, node: process.execPath, repo: root, name: paths.name, ...(agent !== 'codex' ? { agent } : {}), ...(parent ? { parent } : {}),
       args: { task: parsed.task, extra: parsed.extra, role: parsed.opts.role ?? null, spec: details.spec },
-      settings: Object.fromEntries(['model','effort','tier','sandbox','path'].map(key => [key, settings[key]])), dispatcher: source, env: managedEnvironment(env) }, announce,
+      settings: Object.fromEntries(['model','effort','tier','sandbox','path', ...(agent !== 'codex' ? ['args'] : []), ...['policy','adapter','api','credentialEnv','credentialDenyEnv'].filter(key => settings[key] !== undefined)].map(key => [key, settings[key]])), dispatcher: source, env: managedEnvironment(env) }, announce,
       { startTimeout: Number(env.CODEX_DISPATCH_TEST_START_TIMEOUT_MS) > 0 ? Number(env.CODEX_DISPATCH_TEST_START_TIMEOUT_MS) : 15000 });
     if ('exit' in result) {
       return printCompletion(result.exit, paths);
     }
     announce(fallbackMessage(result.reason, app));
   }
-  const detection = await adapter.detect({ env, settings });
+  const executionEnv = agentEnvironment(settings, env, agent);
+  const detection = await adapter.detect({ env: executionEnv, settings });
   registry({ event: 'start', id, repo: root, name: paths.name, spec: details.spec ? relative(canonicalPath(root), canonicalPath(resolvePath(root, details.spec))).replaceAll('\\', '/') : null,
     title: details.title, role: details.role?.name ?? null, pid: process.pid, started,
     progress: paths.progress, report: paths.report, raw: paths.raw, model: settings.model, effort: settings.effort, tier: settings.tier,
     agent: adapter.id, agentVersion: detection.version, sandbox: settings.sandbox, events: paths.events,
-    dispatcher: source, ...(request ? { managed: true } : {}),
+    dispatcher: source, ...(parent ? { parent } : {}), ...(request ? { managed: true } : {}),
   });
   let seq = 0, lastSay = null;
   const errors = [];
@@ -99,14 +116,15 @@ export async function run({ adapter, scriptPath, args = process.argv.slice(2), e
     return code ?? 1;
   };
   let command;
-  try { command = adapter.command({ root, report: paths.report, prompt: details.prompt, settings, detection, env }); }
-  catch (error) { emit({ kind: 'error', text: `启动 Codex 失败：${error.message}` }); return finish(1); }
+  const agentLabel = adapter.id === 'codex' ? 'Codex' : adapter.id;
+  try { command = adapter.command({ root, report: paths.report, prompt: details.prompt, settings, detection, env: executionEnv }); }
+  catch (error) { emit({ kind: 'error', text: `启动 ${agentLabel} 失败：${error.message}` }); return finish(1); }
   if (shouldWatch({ platform: process.platform, interactive, policy: settings.watchWindow, takeover: viewerTakesOver(home) })) openWatch(paths.name, paths.progress);
   return await new Promise(resolve => {
     let child;
     try {
-      child = spawn(command.executable, command.args, { cwd: root, env, stdio: ['pipe', 'pipe', 'pipe'], shell: false, windowsHide: true });
-    } catch (error) { emit({ kind: 'error', text: `启动 Codex 失败：${error.message}` }); resolve(finish(1)); return; }
+      child = spawn(command.executable, command.args, { cwd: root, env: { ...executionEnv, DISPATCH_PARENT_ID: id }, stdio: ['pipe', 'pipe', 'pipe'], shell: false, windowsHide: true });
+    } catch (error) { emit({ kind: 'error', text: `启动 ${agentLabel} 失败：${error.message}` }); resolve(finish(1)); return; }
     registry({ event: 'spawned', id, codexPid: child.pid ?? null, agentPid: child.pid ?? null, at: Date.now() });
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
@@ -121,7 +139,7 @@ export async function run({ adapter, scriptPath, args = process.argv.slice(2), e
     let stderr = '';
     child.stderr.on('data', chunk => { appendFileSync(paths.raw, chunk); stderr = (stderr + chunk).slice(-4096); });
     let failed = false;
-    child.on('error', error => { failed = true; emit({ kind: 'error', text: `启动 Codex 失败：${error.message}` }); });
+    child.on('error', error => { failed = true; emit({ kind: 'error', text: `启动 ${agentLabel} 失败：${error.message}` }); });
     child.stdin.on('error', error => {
       if (error.code !== 'EPIPE') emit({ kind: 'error', text: error.message });
     });

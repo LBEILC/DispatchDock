@@ -3,6 +3,9 @@ import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
 
 const execute = promisify(execFile);
+export function isDispatchCommand(command) {
+  return /(?:^|[\\/\s"])(?:codex-task|dispatch)\.mjs(?:["\s]|$)/i.test(command ?? '');
+}
 export function pidAlive(pid) {
   if (!Number.isSafeInteger(pid) || pid <= 0) return false;
   try { process.kill(pid, 0); return true; }
@@ -36,7 +39,7 @@ export async function processCreated(pid, platform = process.platform) {
 export async function taskAlive(start, { alive = pidAlive, created = processCreated } = {}) {
   if (!alive(start.pid)) return false;
   const time = await created(start.pid);
-  return alive(start.pid) && (time === null || time <= start.started);
+  return alive(start.pid) && (Number.isFinite(start.pidCreated) ? time === start.pidCreated : time === null || time <= start.started);
 }
 
 // 先保留整棵树的身份，再结束并等到全部退出；总时限包括平台查询。

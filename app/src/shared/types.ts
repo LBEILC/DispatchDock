@@ -1,12 +1,14 @@
 export type Status = 'run' | 'done' | 'fail' | 'stop';
 export interface Task {
     id: string;
+    parent?: string;
     repo: string;
     name: string;
     title: string;
     spec: string | null;
     role: string | null;
     pid: number;
+    pidCreated?: number;
     started: number;
     progress: string;
     report: string;

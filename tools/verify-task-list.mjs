@@ -67,6 +67,8 @@ try {
         await check('通知选中任务时清除搜索与筛选', `document.querySelector('.trow.on').dataset.task==='sample-4' && document.querySelector('[data-task-search]').value===''`);
         await evaluate(`document.querySelector('[data-task="sample-0"]').focus(); window.runningRow=document.activeElement; push(fixture.tasks.map((t,i)=>i===0?{...t,status:'done'}:t));`);
         await check('任务结束移动分组时复用按钮并保留焦点', `runningRow.isConnected && runningRow===document.querySelector('[data-task="sample-0"]') && document.activeElement===runningRow && !runningRow.classList.contains('is-running')`);
+        await evaluate(`push(fixture.tasks.map((t,i)=>i===0?{...t,agent:'deepseek',parent:'upper-123',dispatcher:{host:'codex',session:null}}:t)); document.querySelector('[data-task="sample-0"]').click(); document.querySelector('[data-tab=params]').click();`);
+        await check('参数页显示实际执行端、上级和父任务，不误标为 Codex CLI', `document.querySelector('.detail').textContent.includes('deepseek') && document.querySelector('.detail').textContent.includes('upper-123') && !document.querySelector('.detail').textContent.includes('Codex CLI')`);
     }
     const benchmarks = [];
     for (const count of [1000, 5000]) {

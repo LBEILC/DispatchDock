@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { stopTask } from '../skills/codex-dispatch/lib/stop.mjs';
 import { registryWriter } from '../skills/codex-dispatch/lib/records.mjs';
-import { killProcessTree } from '../skills/codex-dispatch/lib/process.mjs';
+import { killProcessTree, taskAlive, isDispatchCommand } from '../skills/codex-dispatch/lib/process.mjs';
 const script = new URL('../skills/codex-dispatch/codex-task.mjs', import.meta.url);
 function fixture(t) {
   const home = mkdtempSync(join(tmpdir(), 'dispatchdock-stop-'));
@@ -53,4 +53,18 @@ test('平台树结束必须等待子孙退出，超时失败', async () => {
 });
 test('进程树快照发现 PID 已复用时拒绝结束', async () => {
   await assert.rejects(killProcessTree(123456, { expectedCreated:1, list:async()=>[{pid:123456,parent:0,created:2}], executeFile:()=>assert.fail('不应结束进程') }), /身份已经变化/);
+});
+
+// 规划可能持续数分钟；用创建时间识别宿主，而不是拿任务开始时间猜。
+test('通用入口停止核对允许长时间规划宿主并拒绝 PID 复用和相似文件名', async t => {
+  assert.equal(isDispatchCommand('node "C:/app/dispatch.mjs" workflow job.json'), true);
+  assert.equal(isDispatchCommand('node not-codex-task.mjs'), false);
+  assert.equal(isDispatchCommand('node dispatch.mjs.bak'), false);
+  const f = fixture(t); f.start.pidCreated = 100; f.record(f.start);
+  assert.equal(await taskAlive(f.start, { alive: () => true, created: async () => 100 }), true);
+  assert.equal(await taskAlive(f.start, { alive: () => true, created: async () => 101 }), false);
+  assert.equal(await taskAlive(f.start, { alive: () => true, created: async () => null }), false);
+  let killed = false;
+  assert.equal(await stopTask(f.home, f.home, f.start.name, { info: async () => ({ created: 100, command: 'node dispatch.mjs workflow job.json' }), killTree: async () => { killed = true; }, log: () => {} }), 0);
+  assert.equal(killed, true);
 });

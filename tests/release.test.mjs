@@ -75,6 +75,7 @@ test('技能 ZIP 解压后无需依赖即可 --yes 安装并 --status 确认两�
   const bytes = readFileSync(path.join(s.base, 'release', result.filename));
   const unpacked = path.join(s.base, 'unpacked'), names = extract(bytes, unpacked);
   assert.ok(names.includes('LICENSE')); assert.ok(names.includes('installer/install.mjs'));
+  for (const file of ['dispatch.mjs', 'index.mjs', 'WORKFLOW.md', 'examples/agents.example.json', 'examples/workflow.example.json', 'examples/bridge-template.mjs']) assert.ok(names.includes('skills/codex-dispatch/' + file));
   assert.ok(names.every(name => /^(skills\/|installer\/|package.json$|LICENSE$|THIRD_PARTY_NOTICES.md$|README(?:.en)?.md$)/.test(name)));
   const env = { ...process.env, CODEX_DISPATCH_HOME: path.join(s.base, 'dispatch'), USERPROFILE: path.join(s.base, 'user'), HOME: path.join(s.base, 'user'),
     APPDATA: path.join(s.base, 'appdata'), CLAUDE_CONFIG_DIR: path.join(s.base, 'claude'), CODEX_HOME: path.join(s.base, 'codex'), XDG_CONFIG_HOME: path.join(s.base, 'xdg') };
@@ -86,6 +87,9 @@ test('技能 ZIP 解压后无需依赖即可 --yes 安装并 --status 确认两�
   const installed = name => status.split('\n').filter(line => line.trim().split(/\s+/).join(' ') === `${name} ${version}`).length;
   assert.equal(installed('codex-dispatch'), 2);
   assert.equal(installed('dual-role-workflow'), 2);
+  const entry = path.join(env.CLAUDE_CONFIG_DIR, 'skills', 'codex-dispatch', 'dispatch.mjs');
+  const help = spawnSync(process.execPath, [entry, '--help'], { cwd: s.base, env, encoding: 'utf8', shell: false, windowsHide: true });
+  assert.equal(help.status, 0, help.stderr); assert.match(help.stdout, /workflow/);
   assert.equal(existsSync(path.join(unpacked, 'node_modules')), false);
 });
 test('ZIP 支持中文名称、空文件并可重复生成', t => {
